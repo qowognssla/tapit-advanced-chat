@@ -63,27 +63,15 @@
 			@typing-message="typingMessage($event.detail[0])"
 			@toggle-rooms-list="$emit('show-demo-options', $event.detail[0].opened)"
 		>
-			<!-- <div
-				v-for="message in messages"
-				:slot="'message_' + message._id"
-				:key="message._id"
-			>
-				New message container
-			</div> -->
 		</vue-advanced-chat>
 	</div>
 </template>
 
 <script>
-import * as firestoreService from '@/database/firestore'
-import * as firebaseService from '@/database/firebase'
-import * as storageService from '@/database/storage'
+import chatService from '@/services/chatService'
 import { parseTimestamp, formatTimestamp } from '@/utils/dates'
-import logoAvatar from '@/assets/logo.png'
 
 import { register } from 'vue-advanced-chat'
-// import { register } from './../../dist/vue-advanced-chat.es.js'
-// import { register } from './../../src/lib/index.js'
 register()
 
 export default {
@@ -130,13 +118,8 @@ export default {
 				{ name: 'removeUser', title: 'Remove User' },
 				{ name: 'deleteRoom', title: 'Delete Room' }
 			],
-			menuActions: [
-				{ name: 'inviteUser', title: 'Invite User' },
-				{ name: 'removeUser', title: 'Remove User' },
-				{ name: 'deleteRoom', title: 'Delete Room' }
-			],
+			menuActions: [],
 			messageSelectionActions: [{ name: 'deleteMessages', title: 'Delete' }],
-			// eslint-disable-next-line vue/no-unused-properties
 			styles: { container: { borderRadius: '4px' } },
 			templatesText: [
 				{
@@ -151,36 +134,229 @@ export default {
 					tag: 'action 2',
 					text: 'This is the second action'
 				}
-			]
-			// ,dbRequestCount: 0
+			],
+			typingUsers: {}
 		}
 	},
 
 	computed: {
 		loadedRooms() {
-			return this.rooms.slice(0, this.roomsLoadedCount)
+			const loadedRaw = this.rooms.slice(0, this.roomsLoadedCount)
+			// Map server rooms (using _id/id) to component rooms (using roomId)
+			const mapped = loadedRaw.map(r => ({
+				roomId: r._id || r.id,
+				roomName: r.roomName,
+				avatar: r.avatar,
+				users: (r.users || []).map(u => ({
+					_id: u._id || u.id,
+					username: u.username,
+					avatar: u.avatar,
+					status: u.status
+				})),
+				unreadCount: r.unreadCount || 0,
+				typingUsers: r.typingUsers || [],
+				index: r.index ?? r.lastUpdated ?? r.lastMessage?.timestamp ?? 0,
+				lastMessage: r.lastMessage ? { ...r.lastMessage } : null
+			}))
+			console.log('Loaded rooms for vue-advanced-chat (mapped):', mapped)
+			return mapped
 		},
 		screenHeight() {
 			return this.isDevice ? window.innerHeight + 'px' : 'calc(100vh - 80px)'
 		}
 	},
 
-	mounted() {
-		this.addCss()
-
+	async mounted() {
+		console.log('ChatContainer mounted')
+		console.log('ChatWindow ref:', this.$refs.chatWindow)
+		
+		await this.initializeChat()
+		this.setupSocketListeners()
 		this.fetchRooms()
-		firebaseService.updateUserOnlineStatus(this.currentUserId)
+		this.fetchAllUsers()
+		
+		// Add styles to the component
+		this.$nextTick(async () => {
+			if (this.$refs.chatWindow && this.$refs.chatWindow.shadowRoot) {
+				try {
+					// Load all necessary styles
+					const styles = `
+						@import url('https://fonts.googleapis.com/css?family=Quicksand:300,400,500,700');
+						${await this.loadComponentStyles()}
+					`;
+					const style = document.createElement('style');
+					style.textContent = styles;
+					this.$refs.chatWindow.shadowRoot.appendChild(style);
+				} catch (error) {
+					console.error('Failed to load styles:', error);
+				}
+			}
+		})
+	},
+
+	beforeUnmount() {
+		chatService.removeSocketListeners()
 	},
 
 	methods: {
-		async addCss() {
-			if (import.meta.env.MODE === 'development') {
-				const styles = await import('./../../src/styles/index.scss')
-				const style = document.createElement('style')
-				style.innerHTML = styles.default
-				this.$refs.chatWindow.shadowRoot.appendChild(style)
+		async loadComponentStyles() {
+			try {
+				// For now, just return empty string
+				// In production, you would load the actual styles
+				return '';
+			} catch (error) {
+				console.error('Error loading styles:', error);
+				return '';
 			}
 		},
+
+
+		async initializeChat() {
+			try {
+				const user = await chatService.initialize(this.currentUserId)
+				console.log('Chat initialized with user:', user)
+			} catch (error) {
+				console.error('Failed to initialize chat:', error)
+			}
+		},
+
+		setupSocketListeners() {
+			chatService.setupSocketListeners({
+				onMessageAdded: this.handleMessageAdded.bind(this),
+				onMessageEdited: this.handleMessageEdited.bind(this),
+				onMessageDeleted: this.handleMessageDeleted.bind(this),
+				onRoomAdded: this.handleRoomAdded.bind(this),
+				onRoomUpdated: this.handleRoomUpdated.bind(this),
+				onRoomRemoved: this.handleRoomRemoved.bind(this),
+				onUserStatusChanged: this.handleUserStatusChanged.bind(this),
+				onUserStartedTyping: this.handleUserStartedTyping.bind(this),
+				onUserStoppedTyping: this.handleUserStoppedTyping.bind(this),
+				onMessageReactionAdded: this.handleMessageReactionAdded.bind(this),
+				onMessageReactionRemoved: this.handleMessageReactionRemoved.bind(this)
+			})
+		},
+
+		// Socket event handlers
+		handleMessageAdded({ roomId, message }) {
+			if (roomId === this.roomId) {
+				this.messages.push(message)
+			}
+		},
+
+		handleMessageEdited({ roomId, messageId, newContent }) {
+			if (roomId === this.roomId) {
+				const message = this.messages.find(m => m._id === messageId)
+				if (message) {
+					message.content = newContent
+					message.edited = true
+				}
+			}
+		},
+
+		handleMessageDeleted({ roomId, messageId }) {
+			if (roomId === this.roomId) {
+				const index = this.messages.findIndex(m => m._id === messageId)
+				if (index !== -1) {
+					this.messages.splice(index, 1)
+				}
+			}
+		},
+
+		handleRoomAdded(room) {
+			this.rooms.push(room)
+			this.roomsLoadedCount++
+		},
+
+		handleRoomUpdated({ roomId, lastMessage }) {
+			const room = this.rooms.find(r => r._id === roomId)
+			if (room) {
+				room.lastMessage = lastMessage
+				room.index = lastMessage.timestamp
+				// Re-sort rooms by last message
+				this.rooms.sort((a, b) => (b.index || 0) - (a.index || 0))
+			}
+		},
+
+		handleRoomRemoved({ roomId }) {
+			const index = this.rooms.findIndex(r => r._id === roomId)
+			if (index !== -1) {
+				this.rooms.splice(index, 1)
+				this.roomsLoadedCount--
+			}
+		},
+
+		handleUserStatusChanged({ userId, status }) {
+			this.rooms.forEach(room => {
+				const user = room.users.find(u => u._id === userId)
+				if (user) {
+					user.status = {
+						state: status,
+						lastChanged: new Date().toISOString()
+					}
+				}
+			})
+		},
+
+		handleUserStartedTyping({ roomId, userId }) {
+			if (!this.typingUsers[roomId]) {
+				this.typingUsers[roomId] = []
+			}
+			if (!this.typingUsers[roomId].includes(userId)) {
+				this.typingUsers[roomId].push(userId)
+			}
+			this.updateRoomTypingUsers(roomId)
+		},
+
+		handleUserStoppedTyping({ roomId, userId }) {
+			if (this.typingUsers[roomId]) {
+				const index = this.typingUsers[roomId].indexOf(userId)
+				if (index !== -1) {
+					this.typingUsers[roomId].splice(index, 1)
+				}
+			}
+			this.updateRoomTypingUsers(roomId)
+		},
+
+		updateRoomTypingUsers(roomId) {
+			const room = this.rooms.find(r => r._id === roomId)
+			if (room) {
+				room.typingUsers = this.typingUsers[roomId] || []
+			}
+		},
+
+		handleMessageReactionAdded({ roomId, messageId, userId, reaction }) {
+			if (roomId === this.roomId) {
+				const message = this.messages.find(m => m._id === messageId)
+				if (message) {
+					if (!message.reactions) message.reactions = {}
+					if (!message.reactions[reaction.emoji]) {
+						message.reactions[reaction.emoji] = {
+							users: [userId],
+							reaction: reaction.emoji,
+							unicode: reaction.unicode
+						}
+					} else if (!message.reactions[reaction.emoji].users.includes(userId)) {
+						message.reactions[reaction.emoji].users.push(userId)
+					}
+				}
+			}
+		},
+
+		handleMessageReactionRemoved({ roomId, messageId, userId, reaction }) {
+			if (roomId === this.roomId) {
+				const message = this.messages.find(m => m._id === messageId)
+				if (message && message.reactions && message.reactions[reaction.emoji]) {
+					const index = message.reactions[reaction.emoji].users.indexOf(userId)
+					if (index !== -1) {
+						message.reactions[reaction.emoji].users.splice(index, 1)
+						if (message.reactions[reaction.emoji].users.length === 0) {
+							delete message.reactions[reaction.emoji]
+						}
+					}
+				}
+			}
+		},
+
 		resetRooms() {
 			this.loadingRooms = true
 			this.loadingLastMessageByRoom = 0
@@ -203,478 +379,304 @@ export default {
 			this.listeners = []
 		},
 
-		fetchRooms() {
+		async fetchRooms() {
 			this.resetRooms()
-			this.fetchMoreRooms()
+			
+			try {
+				const rooms = await chatService.getRooms(this.roomsPerPage)
+				console.log('Fetched rooms:', rooms)
+				
+				this.rooms = rooms
+				this.roomsLoadedCount = rooms.length
+				this.loadingRooms = false
+				
+				// Force roomsLoaded to true even if no rooms
+				this.roomsLoaded = true
+				
+				if (this.rooms.length > 0) {
+					this.roomId = this.rooms[0]._id || this.rooms[0].id || this.rooms[0].roomId
+					this.fetchMessages({ room: this.rooms[0], options: {} })
+				}
+			} catch (error) {
+				console.error('Error fetching rooms:', error)
+				this.loadingRooms = false
+				this.roomsLoaded = true
+			}
 		},
 
 		async fetchMoreRooms() {
-			if (this.endRooms && !this.startRooms) {
-				this.roomsLoaded = true
-				return
-			}
+			if (this.endRooms) return
 
-			const query = firestoreService.roomsQuery(
-				this.currentUserId,
-				this.roomsPerPage,
-				this.startRooms
-			)
-
-			const { data, docs } = await firestoreService.getRooms(query)
-			// this.incrementDbCounter('Fetch Rooms', data.length)
-
-			this.roomsLoaded = data.length === 0 || data.length < this.roomsPerPage
-
-			if (this.startRooms) this.endRooms = this.startRooms
-			this.startRooms = docs[docs.length - 1]
-
-			const roomUserIds = []
-			data.forEach(room => {
-				room.users.forEach(userId => {
-					const foundUser = this.allUsers.find(user => user?._id === userId)
-					if (!foundUser && roomUserIds.indexOf(userId) === -1) {
-						roomUserIds.push(userId)
-					}
-				})
-			})
-
-			// this.incrementDbCounter('Fetch Room Users', roomUserIds.length)
-			const rawUsers = []
-			roomUserIds.forEach(userId => {
-				const promise = firestoreService.getUser(userId)
-				rawUsers.push(promise)
-			})
-
-			this.allUsers = [...this.allUsers, ...(await Promise.all(rawUsers))]
-
-			const roomList = {}
-			data.forEach(room => {
-				roomList[room.id] = { ...room, users: [] }
-
-				room.users.forEach(userId => {
-					const foundUser = this.allUsers.find(user => user?._id === userId)
-					if (foundUser) roomList[room.id].users.push(foundUser)
-				})
-			})
-
-			const formattedRooms = []
-
-			Object.keys(roomList).forEach(key => {
-				const room = roomList[key]
-
-				const roomContacts = room.users.filter(
-					user => user._id !== this.currentUserId
+			try {
+				const rooms = await chatService.getRooms(
+					this.roomsPerPage,
+					this.roomsLoadedCount
 				)
-
-				room.roomName =
-					roomContacts.map(user => user.username).join(', ') || 'Myself'
-
-				const roomAvatar =
-					roomContacts.length === 1 && roomContacts[0].avatar
-						? roomContacts[0].avatar
-						: logoAvatar
-
-				formattedRooms.push({
-					...room,
-					roomId: key,
-					avatar: roomAvatar,
-					index: room.lastUpdated.seconds,
-					lastMessage: {
-						content: 'Room created',
-						timestamp: formatTimestamp(
-							new Date(room.lastUpdated.seconds),
-							room.lastUpdated
-						)
-					}
-				})
-			})
-
-			this.rooms = this.rooms.concat(formattedRooms)
-			formattedRooms.forEach(room => this.listenLastMessage(room))
-
-			if (!this.rooms.length) {
-				this.loadingRooms = false
-				this.roomsLoadedCount = 0
-			}
-
-			this.listenUsersOnlineStatus(formattedRooms)
-			this.listenRooms(query)
-			// setTimeout(() => console.log('TOTAL', this.dbRequestCount), 2000)
-		},
-
-		listenLastMessage(room) {
-			const listener = firestoreService.listenLastMessage(
-				room.roomId,
-				messages => {
-					// this.incrementDbCounter('Listen Last Room Message', messages.length)
-					messages.forEach(message => {
-						const lastMessage = this.formatLastMessage(message, room)
-						const roomIndex = this.rooms.findIndex(
-							r => room.roomId === r.roomId
-						)
-						this.rooms[roomIndex].lastMessage = lastMessage
-						this.rooms = [...this.rooms]
-					})
-					if (this.loadingLastMessageByRoom < this.rooms.length) {
-						this.loadingLastMessageByRoom++
-
-						if (this.loadingLastMessageByRoom === this.rooms.length) {
-							this.loadingRooms = false
-							this.roomsLoadedCount = this.rooms.length
-						}
-					}
+				
+				if (!rooms.length) {
+					this.endRooms = true
+					return
 				}
-			)
 
-			this.roomsListeners.push(listener)
-		},
-
-		formatLastMessage(message, room) {
-			if (!message.timestamp) return
-
-			let content = message.content
-			if (message.files?.length) {
-				const file = message.files[0]
-				content = `${file.name}.${file.extension || file.type}`
-			}
-
-			const username =
-				message.sender_id !== this.currentUserId
-					? room.users.find(user => message.sender_id === user._id)?.username
-					: ''
-
-			return {
-				...message,
-				...{
-					_id: message.id,
-					content,
-					senderId: message.sender_id,
-					timestamp: formatTimestamp(
-						new Date(message.timestamp.seconds * 1000),
-						message.timestamp
-					),
-					username: username,
-					distributed: true,
-					seen: message.sender_id === this.currentUserId ? message.seen : null,
-					new:
-						message.sender_id !== this.currentUserId &&
-						(!message.seen || !message.seen[this.currentUserId])
+				this.rooms.push(...rooms)
+				this.roomsLoadedCount += rooms.length
+				
+				if (rooms.length < this.roomsPerPage) {
+					this.endRooms = true
 				}
+			} catch (error) {
+				console.error('Error fetching more rooms:', error)
 			}
 		},
 
-		fetchMessages({ room, options = {} }) {
+		async fetchMessages({ room, options = {} }) {
 			this.$emit('show-demo-options', false)
 
 			if (options.reset) {
 				this.resetMessages()
+				this.roomId = (room && (room._id || room.id || room.roomId)) || this.roomId
 			}
 
-			if (this.previousLastLoadedMessage && !this.lastLoadedMessage) {
-				this.messagesLoaded = true
-				return
-			}
+			this.selectedRoom = room
+			this.messagesLoaded = false
 
-			this.selectedRoom = room.roomId
-
-			firestoreService
-				.getMessages(room.roomId, this.messagesPerPage, this.lastLoadedMessage)
-				.then(({ data, docs }) => {
-					// this.incrementDbCounter('Fetch Room Messages', messages.length)
-					if (this.selectedRoom !== room.roomId) return
-
-					if (data.length === 0 || data.length < this.messagesPerPage) {
-						setTimeout(() => {
-							this.messagesLoaded = true
-						}, 0)
-					}
-
-					if (options.reset) this.messages = []
-
-					data.forEach(message => {
-						const formattedMessage = this.formatMessage(room, message)
-						this.messages.unshift(formattedMessage)
-					})
-
-					if (this.lastLoadedMessage) {
-						this.previousLastLoadedMessage = this.lastLoadedMessage
-					}
-					this.lastLoadedMessage = docs[docs.length - 1]
-
-					this.listenMessages(room)
+			try {
+				const selectedRoomId = (room && (room._id || room.id || room.roomId)) || this.roomId
+				const messages = await chatService.getMessages(selectedRoomId, {
+					limit: this.messagesPerPage,
+					lastLoadedMessage: this.lastLoadedMessage
 				})
-		},
 
-		listenMessages(room) {
-			const listener = firestoreService.listenMessages(
-				room.roomId,
-				this.lastLoadedMessage,
-				this.previousLastLoadedMessage,
-				messages => {
-					messages.forEach(message => {
-						const formattedMessage = this.formatMessage(room, message)
-						const messageIndex = this.messages.findIndex(
-							m => m._id === message.id
-						)
-
-						if (messageIndex === -1) {
-							this.messages = this.messages.concat([formattedMessage])
-						} else {
-							this.messages[messageIndex] = formattedMessage
-							this.messages = [...this.messages]
-						}
-
-						this.markMessagesSeen(room, message)
-					})
+				if (!messages.length) {
+					setTimeout(() => {
+						this.messagesLoaded = true
+					}, 0)
+					return
 				}
-			)
-			this.listeners.push(listener)
-		},
 
-		markMessagesSeen(room, message) {
-			if (
-				message.sender_id !== this.currentUserId &&
-				(!message.seen || !message.seen[this.currentUserId])
-			) {
-				firestoreService.updateMessage(room.roomId, message.id, {
-					[`seen.${this.currentUserId}`]: new Date()
+				messages.forEach(message => {
+					const formattedMessage = this.formatMessage(room, message)
+					this.messages.unshift(formattedMessage)
 				})
+
+				if (messages.length < this.messagesPerPage) {
+					this.messagesLoaded = true
+				}
+
+				this.lastLoadedMessage = messages[messages.length - 1]
+			} catch (error) {
+				console.error('Error fetching messages:', error)
+				this.messagesLoaded = true
 			}
 		},
 
 		formatMessage(room, message) {
-			// const senderUser = room.users.find(user => user._id === message.sender_id)
 			const formattedMessage = {
 				...message,
-				...{
-					senderId: message.sender_id,
-					_id: message.id,
-					seconds: message.timestamp.seconds,
-					timestamp: parseTimestamp(message.timestamp, 'HH:mm'),
-					date: parseTimestamp(message.timestamp, 'DD MMMM YYYY'),
-					username: room.users.find(user => message.sender_id === user._id)
-						?.username,
-					// avatar: senderUser ? senderUser.avatar : null,
-					distributed: true
-				}
+				date: parseTimestamp(message.timestamp, message.date)
 			}
 
-			if (message.replyMessage) {
-				formattedMessage.replyMessage = {
-					...message.replyMessage,
-					...{
-						senderId: message.replyMessage.sender_id
-					}
-				}
+			if (!message.system) {
+				formattedMessage.files = this.formatMessageFiles(message.files)
 			}
 
+			if (message.reactions) {
+				formattedMessage.reactions = message.reactions
+			}
+
+			// Ensure message has an id for keys
+			if (!formattedMessage._id) {
+				formattedMessage._id = message.id || `msg_${message.timestamp || Date.now()}`
+			}
+			// Ensure sender id shape
+			if (!formattedMessage.senderId && message.sender_id) {
+				formattedMessage.senderId = message.sender_id
+			}
+			
 			return formattedMessage
 		},
 
+		formatMessageFiles(files) {
+			if (!files) return []
+			
+			const toArray = Array.isArray(files) ? files : [{ url: files }]
+			return toArray.map(file => {
+				const rawUrl = file.url || file.preview || ''
+				const absoluteUrl = rawUrl && rawUrl.startsWith('http') ? rawUrl : (rawUrl ? `http://localhost:3001${rawUrl}` : '')
+				return {
+					name: file.name || 'Unknown',
+					size: file.size || 0,
+					type: file.type || '',
+					extension: file.extension || '',
+					url: absoluteUrl,
+					preview: file.preview ? (file.preview.startsWith('http') ? file.preview : `http://localhost:3001${file.preview}`) : absoluteUrl,
+					progress: file.progress || 100,
+					audio: file.audio || false
+				}
+			})
+		},
+
 		async sendMessage({ content, roomId, files, replyMessage }) {
-			const message = {
-				sender_id: this.currentUserId,
-				content,
-				timestamp: new Date()
-			}
+			try {
+				const message = await chatService.sendMessage(roomId, {
+					content,
+					files,
+					replyMessage
+				})
 
-			if (files) {
-				message.files = this.formattedFiles(files)
-			}
-
-			if (replyMessage) {
-				message.replyMessage = {
-					_id: replyMessage._id,
-					content: replyMessage.content,
-					sender_id: replyMessage.senderId
+				if (files && files.length) {
+					message.files = []
+					
+					for (let index = 0; index < files.length; index++) {
+						const file = files[index]
+						await this.uploadFile({ file, messageId: message._id, roomId })
+					}
 				}
-
-				if (replyMessage.files) {
-					message.replyMessage.files = replyMessage.files
-				}
+			} catch (error) {
+				console.error('Error sending message:', error)
 			}
-
-			const { id } = await firestoreService.addMessage(roomId, message)
-
-			if (files) {
-				for (let index = 0; index < files.length; index++) {
-					await this.uploadFile({ file: files[index], messageId: id, roomId })
-				}
-			}
-
-			firestoreService.updateRoom(roomId, { lastUpdated: new Date() })
 		},
 
 		async editMessage({ messageId, newContent, roomId, files }) {
-			const newMessage = { edited: new Date() }
-			newMessage.content = newContent
-
-			if (files) {
-				newMessage.files = this.formattedFiles(files)
-			} else {
-				newMessage.files = firestoreService.deleteDbField
-			}
-
-			await firestoreService.updateMessage(roomId, messageId, newMessage)
-
-			if (files) {
-				for (let index = 0; index < files.length; index++) {
-					if (files[index]?.blob) {
-						await this.uploadFile({ file: files[index], messageId, roomId })
-					}
-				}
+			try {
+				await chatService.editMessage(roomId, messageId, newContent)
+			} catch (error) {
+				console.error('Error editing message:', error)
 			}
 		},
 
 		async deleteMessage({ message, roomId }) {
-			await firestoreService.updateMessage(roomId, message._id, {
-				deleted: new Date()
-			})
-
-			const { files } = message
-
-			if (files) {
-				files.forEach(file => {
-					storageService.deleteFile(this.currentUserId, message._id, file)
-				})
+			try {
+				await chatService.deleteMessage(roomId, message._id)
+			} catch (error) {
+				console.error('Error deleting message:', error)
 			}
 		},
 
 		async uploadFile({ file, messageId, roomId }) {
-			return new Promise(resolve => {
-				let type = file.extension || file.type
-				if (type === 'svg' || type === 'pdf') {
-					type = file.type
+			try {
+				const uploadedFile = await chatService.uploadFile(file)
+				
+				const message = this.messages.find(m => m._id === messageId)
+				if (message) {
+					if (!message.files) message.files = []
+					message.files.push({
+						name: file.name,
+						size: file.size,
+						type: file.type,
+						extension: file.extension || file.type,
+						url: `http://localhost:3001${uploadedFile.url}`,
+						preview: `http://localhost:3001${uploadedFile.url}`,
+						progress: 100
+					})
 				}
-
-				storageService.listenUploadImageProgress(
-					this.currentUserId,
-					messageId,
-					file,
-					type,
-					progress => {
-						this.updateFileProgress(messageId, file.localUrl, progress)
-					},
-					_error => {
-						resolve(false)
-					},
-					async url => {
-						const message = await firestoreService.getMessage(roomId, messageId)
-
-						message.files.forEach(f => {
-							if (f.url === file.localUrl) {
-								f.url = url
-							}
-						})
-
-						await firestoreService.updateMessage(roomId, messageId, {
-							files: message.files
-						})
-						resolve(true)
-					}
-				)
-			})
-		},
-
-		updateFileProgress(messageId, fileUrl, progress) {
-			const message = this.messages.find(message => message._id === messageId)
-
-			if (!message || !message.files) return
-
-			message.files.find(file => file.url === fileUrl).progress = progress
-			this.messages = [...this.messages]
-		},
-
-		formattedFiles(files) {
-			const formattedFiles = []
-
-			files.forEach(file => {
-				const messageFile = {
-					name: file.name,
-					size: file.size,
-					type: file.type,
-					extension: file.extension || file.type,
-					url: file.url || file.localUrl
-				}
-
-				if (file.audio) {
-					messageFile.audio = true
-					messageFile.duration = file.duration
-				}
-
-				formattedFiles.push(messageFile)
-			})
-
-			return formattedFiles
+			} catch (error) {
+				console.error('Error uploading file:', error)
+			}
 		},
 
 		openFile({ file }) {
-			window.open(file.file.url, '_blank')
+			const targetUrl = file?.file?.url || file?.url
+			if (targetUrl) window.open(targetUrl, '_blank')
 		},
 
-		async openUserTag({ user }) {
-			let roomId
+		openUserTag({ user }) {
+			console.log('Open user tag:', user)
+		},
 
-			this.rooms.forEach(room => {
-				if (room.users.length === 2) {
-					const userId1 = room.users[0]._id
-					const userId2 = room.users[1]._id
-					if (
-						(userId1 === user._id || userId1 === this.currentUserId) &&
-						(userId2 === user._id || userId2 === this.currentUserId)
-					) {
-						roomId = room.roomId
-					}
+		async sendMessageReaction({ messageId, reaction, remove, roomId }) {
+			try {
+				if (remove) {
+					await chatService.removeMessageReaction(roomId, messageId, reaction)
+				} else {
+					await chatService.addMessageReaction(roomId, messageId, reaction)
 				}
-			})
-
-			if (roomId) {
-				this.roomId = roomId
-				return
+			} catch (error) {
+				console.error('Error handling message reaction:', error)
 			}
-
-			const query1 = await firestoreService.getUserRooms(
-				this.currentUserId,
-				user._id
-			)
-
-			if (query1.data.length) {
-				return this.loadRoom(query1)
-			}
-
-			const query2 = await firestoreService.getUserRooms(
-				user._id,
-				this.currentUserId
-			)
-
-			if (query2.data.length) {
-				return this.loadRoom(query2)
-			}
-
-			const users =
-				user._id === this.currentUserId
-					? [this.currentUserId]
-					: [user._id, this.currentUserId]
-
-			const room = await firestoreService.addRoom({
-				users: users,
-				lastUpdated: new Date()
-			})
-
-			this.roomId = room.id
-			this.fetchRooms()
 		},
 
-		async loadRoom(query) {
-			query.forEach(async room => {
-				if (this.loadingRooms) return
-				await firestoreService.updateRoom(room.id, { lastUpdated: new Date() })
-				this.roomId = room.id
+		typingMessage({ message, roomId }) {
+			chatService.sendTypingIndicator(roomId, message)
+		},
+
+		async addRoom(userId) {
+			this.disableForm = false
+			this.addNewRoom = true
+			this.addRoomUsername = ''
+			this.inviteRoomId = null
+		},
+
+		async createRoom() {
+			this.disableForm = true
+
+			try {
+				const user = await chatService.getUserByUsername(this.addRoomUsername)
+				const room = await chatService.createRoom([user._id])
+				
+				this.addNewRoom = false
+				this.addRoomUsername = ''
+				this.disableForm = false
 				this.fetchRooms()
-			})
+			} catch (error) {
+				console.error('Error creating room:', error)
+				alert('User not found or error creating room')
+				this.disableForm = false
+			}
 		},
 
-		menuActionHandler({ action, roomId }) {
+		async inviteUser(roomId) {
+			this.inviteRoomId = roomId
+			this.invitedUsername = ''
+			this.addNewRoom = false
+		},
+
+		async addRoomUser() {
+			this.disableForm = true
+
+			try {
+				await chatService.addUserToRoom(this.inviteRoomId, this.invitedUsername)
+				this.inviteRoomId = null
+				this.invitedUsername = ''
+				this.fetchRooms()
+			} catch (error) {
+				console.error('Error adding user to room:', error)
+			}
+
+			this.disableForm = false
+		},
+
+		async removeUser(roomId) {
+			this.removeRoomId = roomId
+			this.removeUserId = ''
+			this.removeUsers = this.rooms.find(room => room._id === roomId).users
+		},
+
+		async deleteRoomUser() {
+			this.disableForm = true
+
+			try {
+				await chatService.removeUserFromRoom(this.removeRoomId, this.removeUserId)
+				this.removeRoomId = null
+				this.removeUserId = ''
+				this.fetchRooms()
+			} catch (error) {
+				console.error('Error removing user from room:', error)
+			}
+
+			this.disableForm = false
+		},
+
+		async deleteRoom(roomId) {
+			try {
+				await chatService.deleteRoom(roomId)
+				this.fetchRooms()
+			} catch (error) {
+				console.error('Error deleting room:', error)
+			}
+		},
+
+		async menuActionHandler({ action, roomId }) {
 			switch (action.name) {
 				case 'inviteUser':
 					return this.inviteUser(roomId)
@@ -685,191 +687,23 @@ export default {
 			}
 		},
 
-		messageSelectionActionHandler({ action, messages, roomId }) {
+		async messageSelectionActionHandler({ action, messages, roomId }) {
 			switch (action.name) {
 				case 'deleteMessages':
-					messages.forEach(message => {
-						this.deleteMessage({ message, roomId })
-					})
-			}
-		},
-
-		async sendMessageReaction({ reaction, remove, messageId, roomId }) {
-			firestoreService.updateMessageReactions(
-				roomId,
-				messageId,
-				this.currentUserId,
-				reaction.unicode,
-				remove ? 'remove' : 'add'
-			)
-		},
-
-		typingMessage({ message, roomId }) {
-			if (roomId) {
-				if (message?.length > 1) {
-					this.typingMessageCache = message
-					return
-				}
-
-				if (message?.length === 1 && this.typingMessageCache) {
-					this.typingMessageCache = message
-					return
-				}
-
-				this.typingMessageCache = message
-
-				firestoreService.updateRoomTypingUsers(
-					roomId,
-					this.currentUserId,
-					message ? 'add' : 'remove'
-				)
-			}
-		},
-
-		async listenRooms(query) {
-			const listener = firestoreService.listenRooms(query, rooms => {
-				// this.incrementDbCounter('Listen Rooms Typing Users', rooms.length)
-				rooms.forEach(room => {
-					const foundRoom = this.rooms.find(r => r.roomId === room.id)
-					if (foundRoom) {
-						foundRoom.typingUsers = room.typingUsers
-						foundRoom.index = room.lastUpdated.seconds
+					for (const message of messages) {
+						await this.deleteMessage({ message, roomId })
 					}
-				})
-			})
-			this.roomsListeners.push(listener)
-		},
-
-		listenUsersOnlineStatus(rooms) {
-			rooms.forEach(room => {
-				room.users.forEach(user => {
-					const listener = firebaseService.firebaseListener(
-						firebaseService.userStatusRef(user._id),
-						snapshot => {
-							if (!snapshot || !snapshot.val()) return
-
-							const lastChanged = formatTimestamp(
-								new Date(snapshot.val().lastChanged),
-								new Date(snapshot.val().lastChanged)
-							)
-
-							user.status = { ...snapshot.val(), lastChanged }
-
-							const roomIndex = this.rooms.findIndex(
-								r => room.roomId === r.roomId
-							)
-
-							this.rooms[roomIndex] = room
-							this.rooms = [...this.rooms]
-						}
-					)
-					this.roomsListeners.push(listener)
-				})
-			})
-		},
-
-		addRoom() {
-			this.resetForms()
-			this.addNewRoom = true
-		},
-
-		async createRoom() {
-			this.disableForm = true
-
-			const { id } = await firestoreService.addUser({
-				username: this.addRoomUsername
-			})
-			await firestoreService.updateUser(id, { _id: id })
-
-			await firestoreService.addRoom({
-				users: [id, this.currentUserId],
-				lastUpdated: new Date()
-			})
-
-			this.addNewRoom = false
-			this.addRoomUsername = ''
-			this.fetchRooms()
-		},
-
-		inviteUser(roomId) {
-			this.resetForms()
-			this.inviteRoomId = roomId
-		},
-
-		async addRoomUser() {
-			this.disableForm = true
-
-			const { id } = await firestoreService.addUser({
-				username: this.invitedUsername
-			})
-			await firestoreService.updateUser(id, { _id: id })
-
-			await firestoreService.addRoomUser(this.inviteRoomId, id)
-
-			this.inviteRoomId = null
-			this.invitedUsername = ''
-			this.fetchRooms()
-		},
-
-		removeUser(roomId) {
-			this.resetForms()
-			this.removeRoomId = roomId
-			this.removeUsers = this.rooms.find(room => room.roomId === roomId).users
-		},
-
-		async deleteRoomUser() {
-			this.disableForm = true
-
-			await firestoreService.removeRoomUser(
-				this.removeRoomId,
-				this.removeUserId
-			)
-
-			this.removeRoomId = null
-			this.removeUserId = ''
-			this.fetchRooms()
-		},
-
-		async deleteRoom(roomId) {
-			const room = this.rooms.find(r => r.roomId === roomId)
-			if (
-				room.users.find(user => user._id === 'SGmFnBZB4xxMv9V4CVlW') ||
-				room.users.find(user => user._id === '6jMsIXUrBHBj7o2cRlau')
-			) {
-				return alert('Nope, for demo purposes you cannot delete this room')
 			}
-
-			firestoreService.getMessages(roomId).then(({ data }) => {
-				data.forEach(message => {
-					firestoreService.deleteMessage(roomId, message.id)
-					if (message.files) {
-						message.files.forEach(file => {
-							storageService.deleteFile(this.currentUserId, message.id, file)
-						})
-					}
-				})
-			})
-
-			await firestoreService.deleteRoom(roomId)
-
-			this.fetchRooms()
 		},
 
-		resetForms() {
-			this.disableForm = false
-			this.addNewRoom = null
-			this.addRoomUsername = ''
-			this.inviteRoomId = null
-			this.invitedUsername = ''
-			this.removeRoomId = null
-			this.removeUserId = ''
+		async fetchAllUsers() {
+			try {
+				const users = await chatService.getAllUsers()
+				this.allUsers = users
+			} catch (error) {
+				console.error('Error fetching users:', error)
+			}
 		}
-
-		// ,incrementDbCounter(type, size) {
-		// 	size = size || 1
-		// 	this.dbRequestCount += size
-		// 	console.log(type, size)
-		// }
 	}
 }
 </script>
@@ -881,68 +715,53 @@ export default {
 
 .window-mobile {
 	form {
-		padding: 0 10px 10px;
+		padding: 0 20px 20px;
 	}
 }
 
 form {
+	display: flex;
+	align-items: center;
+	justify-content: center;
 	padding-bottom: 20px;
-}
 
-input {
-	padding: 5px;
-	width: 140px;
-	height: 21px;
-	border-radius: 4px;
-	border: 1px solid #d2d6da;
-	outline: none;
-	font-size: 14px;
-	vertical-align: middle;
-
-	&::placeholder {
-		color: #9ca6af;
-	}
-}
-
-button {
-	background: #1976d2;
-	color: #fff;
-	outline: none;
-	cursor: pointer;
-	border-radius: 4px;
-	padding: 8px 12px;
-	margin-left: 10px;
-	border: none;
-	font-size: 14px;
-	transition: 0.3s;
-	vertical-align: middle;
-
-	&:hover {
-		opacity: 0.8;
+	input {
+		padding: 5px 10px;
+		margin-right: 5px;
+		border: 1px solid #e0e2e4;
+		border-radius: 4px;
+		outline: 0;
 	}
 
-	&:active {
-		opacity: 0.6;
+	button {
+		background: #1976d2;
+		color: white;
+		border-radius: 4px;
+		padding: 5px 10px;
+		cursor: pointer;
+		border: none;
+		outline: 0;
+		font-weight: 500;
+
+		&:hover {
+			opacity: 0.8;
+		}
+
+		&:active {
+			opacity: 0.6;
+		}
+
+		&:disabled {
+			cursor: initial;
+			background: #c6c9cc;
+			opacity: 0.6;
+		}
 	}
 
-	&:disabled {
-		cursor: initial;
-		background: #c6c9cc;
-		opacity: 0.6;
+	.button-cancel {
+		margin-left: 5px;
+		background: #e0e2e4;
+		color: #696a6c;
 	}
-}
-
-.button-cancel {
-	color: #a8aeb3;
-	background: none;
-	margin-left: 5px;
-}
-
-select {
-	vertical-align: middle;
-	height: 33px;
-	width: 152px;
-	font-size: 13px;
-	margin: 0 !important;
 }
 </style>

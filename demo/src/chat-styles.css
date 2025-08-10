@@ -1,0 +1,58 @@
+/* vue-advanced-chat styles will be loaded separately */
+
+/* Additional custom styles */
+.window-container {
+  width: 100%;
+  height: 100vh;
+}
+
+.window-mobile {
+  padding: 0;
+}
+
+/* Form styles */
+form {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 20px;
+}
+
+form input {
+  padding: 5px 10px;
+  margin-right: 5px;
+  border: 1px solid #e0e2e4;
+  border-radius: 4px;
+  outline: 0;
+}
+
+form button {
+  background: #1976d2;
+  color: white;
+  border-radius: 4px;
+  padding: 5px 10px;
+  cursor: pointer;
+  border: none;
+  outline: 0;
+  font-weight: 500;
+}
+
+form button:hover {
+  opacity: 0.8;
+}
+
+form button:active {
+  opacity: 0.6;
+}
+
+form button:disabled {
+  cursor: initial;
+  background: #c6c9cc;
+  opacity: 0.6;
+}
+
+form .button-cancel {
+  margin-left: 5px;
+  background: #e0e2e4;
+  color: #696a6c;
+}

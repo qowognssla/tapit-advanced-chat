@@ -4,60 +4,64 @@
 			class="app-container"
 			:class="{ 'app-mobile': isDevice, 'app-mobile-dark': theme === 'dark' }"
 		>
-			<!-- <div>
-				<button @click="resetData">
-					Clear Data
-				</button>
-				<button :disabled="updatingData" @click="addData">
-					Add Data
-				</button>
-			</div> -->
-			<span
-				v-if="showOptions"
-				class="user-logged"
-				:class="{ 'user-logged-dark': theme === 'dark' }"
-			>
-				Logged as
-			</span>
-			<select v-if="showOptions" v-model="currentUserId">
-				<option v-for="user in users" :key="user._id" :value="user._id">
-					{{ user.username }}
-				</option>
-			</select>
-
-			<div v-if="showOptions" class="button-theme">
-				<button class="button-light" @click="theme = 'light'">
-					Light
-				</button>
-				<button class="button-dark" @click="theme = 'dark'">
-					Dark
-				</button>
-				<button class="button-github">
-					<a href="https://github.com/advanced-chat/vue-advanced-chat">
-						<img src="@/assets/github.svg" />
-					</a>
-				</button>
+			<div v-if="!isLoggedIn" class="login-container">
+				<h2>Welcome to Chat Demo</h2>
+				<form @submit.prevent="login">
+					<input
+						v-model="loginUsername"
+						type="text"
+						placeholder="Enter your username"
+						required
+					/>
+					<button type="submit">Login</button>
+				</form>
+				<div class="demo-users">
+					<p>Quick login as:</p>
+					<button @click="quickLogin('Luke')">Luke</button>
+					<button @click="quickLogin('Leia')">Leia</button>
+					<button @click="quickLogin('Yoda')">Yoda</button>
+				</div>
 			</div>
 
-			<chat-container
-				v-if="showChat"
-				:current-user-id="currentUserId"
-				:theme="theme"
-				:is-device="isDevice"
-				@show-demo-options="showDemoOptions = $event"
-			/>
+			<template v-else>
+				<span
+					v-if="showOptions"
+					class="user-logged"
+					:class="{ 'user-logged-dark': theme === 'dark' }"
+				>
+					Logged as {{ currentUsername }}
+				</span>
+				<button v-if="showOptions" class="logout-button" @click="logout">
+					Logout
+				</button>
 
-			<!-- <div class="version-container">
-				v1.0.0
-			</div> -->
+				<div v-if="showOptions" class="button-theme">
+					<button class="button-light" @click="theme = 'light'">
+						Light
+					</button>
+					<button class="button-dark" @click="theme = 'dark'">
+						Dark
+					</button>
+					<button class="button-github">
+						<a href="https://github.com/advanced-chat/vue-advanced-chat">
+							<img src="@/assets/github.svg" />
+						</a>
+					</button>
+				</div>
+
+				<chat-container
+					v-if="showChat"
+					:current-user-id="currentUsername"
+					:theme="theme"
+					:is-device="isDevice"
+					@show-demo-options="showDemoOptions = $event"
+				/>
+			</template>
 		</div>
 	</div>
 </template>
 
 <script>
-import * as firestoreService from '@/database/firestore'
-import * as storageService from '@/database/storage'
-
 import ChatContainer from './ChatContainer'
 
 export default {
@@ -68,29 +72,12 @@ export default {
 	data() {
 		return {
 			theme: 'light',
-			showChat: true,
-			users: [
-				{
-					_id: '6R0MijpK6M4AIrwaaCY2',
-					username: 'Luke',
-					avatar: 'https://66.media.tumblr.com/avatar_c6a8eae4303e_512.pnj'
-				},
-				{
-					_id: 'SGmFnBZB4xxMv9V4CVlW',
-					username: 'Leia',
-					avatar: 'https://media.glamour.com/photos/5695e9d716d0dc3747eea3ef/master/w_1600,c_limit/beauty-2015-12-princess-leia-1-main.jpg'
-				},
-				{
-					_id: '6jMsIXUrBHBj7o2cRlau',
-					username: 'Yoda',
-					avatar:
-						'https://vignette.wikia.nocookie.net/teamavatarone/images/4/45/Yoda.jpg/revision/latest?cb=20130224160049'
-				}
-			],
-			currentUserId: '6R0MijpK6M4AIrwaaCY2',
+			showChat: false,
+			currentUsername: '',
+			loginUsername: '',
+			isLoggedIn: false,
 			isDevice: false,
-			showDemoOptions: true,
-			updatingData: false
+			showDemoOptions: true
 		}
 	},
 
@@ -101,9 +88,11 @@ export default {
 	},
 
 	watch: {
-		currentUserId() {
-			this.showChat = false
-			setTimeout(() => (this.showChat = true), 150)
+		currentUsername() {
+			if (this.isLoggedIn) {
+				this.showChat = false
+				setTimeout(() => (this.showChat = true), 150)
+			}
 		}
 	},
 
@@ -112,68 +101,38 @@ export default {
 		window.addEventListener('resize', ev => {
 			if (ev.isTrusted) this.isDevice = window.innerWidth < 500
 		})
+
+		// Check if user was previously logged in
+		const savedUsername = localStorage.getItem('chatUsername')
+		if (savedUsername) {
+			this.currentUsername = savedUsername
+			this.isLoggedIn = true
+			this.showChat = true
+		}
 	},
 
 	methods: {
-		resetData() {
-			firestoreService.getAllRooms().then(({ data }) => {
-				data.forEach(async room => {
-					await firestoreService.getMessages(room.id).then(({ data }) => {
-						data.forEach(message => {
-							firestoreService.deleteMessage(room.id, message.id)
-							if (message.files) {
-								message.files.forEach(file => {
-									storageService.deleteFile(
-										this.currentUserId,
-										message.id,
-										file
-									)
-								})
-							}
-						})
-					})
-
-					firestoreService.deleteRoom(room.id)
-				})
-			})
-
-			firestoreService.getAllUsers().then(({ data }) => {
-				data.forEach(user => {
-					firestoreService.deleteUser(user.id)
-				})
-			})
+		login() {
+			if (this.loginUsername.trim()) {
+				this.currentUsername = this.loginUsername.trim()
+				localStorage.setItem('chatUsername', this.currentUsername)
+				this.isLoggedIn = true
+				this.showChat = true
+				this.loginUsername = ''
+			}
 		},
-		async addData() {
-			this.updatingData = true
 
-			const user1 = this.users[0]
-			await firestoreService.addIdentifiedUser(user1._id, user1)
+		quickLogin(username) {
+			this.loginUsername = username
+			this.login()
+		},
 
-			const user2 = this.users[1]
-			await firestoreService.addIdentifiedUser(user2._id, user2)
-
-			const user3 = this.users[2]
-			await firestoreService.addIdentifiedUser(user3._id, user3)
-
-			await firestoreService.addRoom({
-				users: [user1._id, user2._id],
-				lastUpdated: new Date()
-			})
-			await firestoreService.addRoom({
-				users: [user1._id, user3._id],
-				lastUpdated: new Date()
-			})
-			await firestoreService.addRoom({
-				users: [user2._id, user3._id],
-				lastUpdated: new Date()
-			})
-			await firestoreService.addRoom({
-				users: [user1._id, user2._id, user3._id],
-				lastUpdated: new Date()
-			})
-
-			this.updatingData = false
-			location.reload()
+		logout() {
+			localStorage.removeItem('chatUsername')
+			localStorage.removeItem('authToken')
+			this.isLoggedIn = false
+			this.showChat = false
+			this.currentUsername = ''
 		}
 	}
 }
@@ -192,6 +151,7 @@ input {
 .app-container {
 	font-family: 'Quicksand', sans-serif;
 	padding: 20px 30px 30px;
+	min-height: 100vh;
 }
 
 .app-mobile {
@@ -222,13 +182,99 @@ input {
 	}
 }
 
+.login-container {
+	max-width: 400px;
+	margin: 100px auto;
+	padding: 40px;
+	background: white;
+	border-radius: 8px;
+	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+	text-align: center;
+
+	h2 {
+		margin-bottom: 30px;
+		color: #333;
+	}
+
+	form {
+		margin-bottom: 30px;
+	}
+
+	input {
+		width: 100%;
+		padding: 12px;
+		margin-bottom: 15px;
+		border: 1px solid #e0e2e4;
+		border-radius: 4px;
+		font-size: 16px;
+		box-sizing: border-box;
+
+		&:focus {
+			outline: none;
+			border-color: #1976d2;
+		}
+	}
+
+	button {
+		width: 100%;
+		padding: 12px;
+		background: #1976d2;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		font-size: 16px;
+		cursor: pointer;
+		transition: background 0.3s;
+
+		&:hover {
+			background: #1565c0;
+		}
+	}
+
+	.demo-users {
+		p {
+			margin-bottom: 15px;
+			color: #666;
+		}
+
+		button {
+			width: 30%;
+			margin: 0 1.5%;
+			padding: 8px;
+			background: #f5f5f5;
+			color: #333;
+			border: 1px solid #e0e2e4;
+
+			&:hover {
+				background: #e0e2e4;
+			}
+		}
+	}
+}
+
 .user-logged {
-	font-size: 12px;
-	margin-right: 5px;
+	font-size: 14px;
+	margin-right: 10px;
 	margin-top: 10px;
+	display: inline-block;
 
 	&.user-logged-dark {
 		color: #fff;
+	}
+}
+
+.logout-button {
+	padding: 5px 10px;
+	background: #f44336;
+	color: white;
+	border: none;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 12px;
+	margin-right: 10px;
+
+	&:hover {
+		background: #d32f2f;
 	}
 }
 
