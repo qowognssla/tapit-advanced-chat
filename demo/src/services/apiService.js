@@ -8,11 +8,18 @@ class ApiService {
 
   async request(method, endpoint, data = null) {
     try {
+      console.log(`🔍 ApiService: Making ${method} request to ${endpoint}`);
+      console.log(`🔍 ApiService: Base URL: ${this.baseURL}`);
+      console.log(`🔍 ApiService: Data/Params:`, data);
+      
       const config = {
         method,
         url: `${this.baseURL}${endpoint}`,
         headers: getAuthHeaders(),
       };
+
+      console.log(`🔍 ApiService: Full URL: ${config.url}`);
+      console.log(`🔍 ApiService: Headers:`, config.headers);
 
       if (data) {
         if (method === 'GET') {
@@ -23,9 +30,14 @@ class ApiService {
       }
 
       const response = await axios(config);
+      console.log(`✅ ApiService: ${method} ${endpoint} response:`, response.data);
       return response.data;
     } catch (error) {
-      console.error(`API Error [${method} ${endpoint}]:`, error);
+      console.error(`❌ ApiService Error [${method} ${endpoint}]:`, error);
+      if (error.response) {
+        console.error(`❌ Response status:`, error.response.status);
+        console.error(`❌ Response data:`, error.response.data);
+      }
       throw error;
     }
   }
@@ -50,7 +62,10 @@ class ApiService {
 
   // Room endpoints
   async getRooms(limit = 15, offset = 0) {
-    return this.request('GET', '/api/rooms', { limit, offset });
+    console.log('🔍 ApiService: Making GET request to /api/rooms with params:', { limit, offset });
+    const result = await this.request('GET', '/api/rooms', { limit, offset });
+    console.log('✅ ApiService: GET /api/rooms response:', result);
+    return result;
   }
 
   async getRoomById(roomId) {
@@ -110,6 +125,7 @@ class ApiService {
 }
 
 export default new ApiService();
+
 
 
 

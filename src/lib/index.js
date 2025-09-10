@@ -1,7 +1,9 @@
 import { defineCustomElement } from 'vue'
 import ChatWindow from './ChatWindow'
+import VideoCall from './components/VideoCall/VideoCall'
 
 export const VueAdvancedChat = defineCustomElement(ChatWindow)
+export { VideoCall }
 
 const PACKAGE_NAME = 'vue-advanced-chat'
 

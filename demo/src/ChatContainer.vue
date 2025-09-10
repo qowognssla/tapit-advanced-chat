@@ -1,5 +1,11 @@
 <template>
 	<div class="window-container" :class="{ 'window-mobile': isDevice }">
+		<!-- 채팅창이 로드되지 않았을 때 표시할 로딩 상태 -->
+		<div v-if="!chatReady" class="loading-container">
+			<div class="loading-spinner"></div>
+			<p>채팅창을 불러오는 중...</p>
+		</div>
+
 		<form v-if="addNewRoom" @submit.prevent="createRoom">
 			<input v-model="addRoomUsername" type="text" placeholder="Add username" />
 			<button type="submit" :disabled="disableForm || !addRoomUsername">
@@ -29,12 +35,15 @@
 			<button class="button-cancel" @click="removeRoomId = null">Cancel</button>
 		</form>
 
+		<!-- 채팅창이 준비되었을 때만 표시 -->
 		<vue-advanced-chat
+			v-if="chatReady"
 			ref="chatWindow"
 			:height="screenHeight"
 			:theme="theme"
 			:styles="JSON.stringify(styles)"
-			:current-user-id="currentUserId"
+			:current-user-id="internalCurrentUserId"
+			:load-first-room="false"
 			:room-id="roomId"
 			:rooms="JSON.stringify(loadedRooms)"
 			:loading-rooms="loadingRooms"
@@ -46,6 +55,15 @@
 			:menu-actions="JSON.stringify(menuActions)"
 			:message-selection-actions="JSON.stringify(messageSelectionActions)"
 			:templates-text="JSON.stringify(templatesText)"
+			:textarea-action-enabled="true"
+			:show-files="true"
+			:show-audio="true"
+			:show-emojis="true"
+			:accepted-files="'*'"
+			:multiple-files="true"
+			:capture-files="''"
+			:audio-bit-rate="128000"
+			:audio-sample-rate="44100"
 			@fetch-more-rooms="fetchMoreRooms"
 			@fetch-messages="fetchMessages($event.detail[0])"
 			@send-message="sendMessage($event.detail[0])"
@@ -61,9 +79,25 @@
 			"
 			@send-message-reaction="sendMessageReaction($event.detail[0])"
 			@typing-message="typingMessage($event.detail[0])"
+			@textarea-action-handler="onTextareaAction($event.detail[0])"
 			@toggle-rooms-list="$emit('show-demo-options', $event.detail[0].opened)"
+			@webrtc-offer="onWebRTCOffer($event.detail[0])"
+			@webrtc-answer="onWebRTCAnswer($event.detail[0])"
+			@webrtc-candidate="onWebRTCCandidate($event.detail[0])"
 		>
 		</vue-advanced-chat>
+
+		<!-- Video call widget -->
+		<VideoCall
+			v-if="roomId && chatReady"
+			ref="videoCall"
+			:visible="showVideoCall"
+			:room-id="roomId"
+			@close="() => (showVideoCall = false)"
+			@webrtc-offer="onWebRTCOffer"
+			@webrtc-answer="onWebRTCAnswer"
+			@webrtc-candidate="onWebRTCCandidate"
+		/>
 	</div>
 </template>
 
@@ -71,10 +105,11 @@
 import chatService from '@/services/chatService'
 import { parseTimestamp, formatTimestamp } from '@/utils/dates'
 
-import { register } from 'vue-advanced-chat'
+import { register, VideoCall } from 'vue-advanced-chat'
 register()
 
 export default {
+	components: { VideoCall },
 	props: {
 		currentUserId: { type: String, required: true },
 		theme: { type: String, required: true },
@@ -85,6 +120,7 @@ export default {
 
 	data() {
 		return {
+			loggedInUserId: '',
 			roomsPerPage: 15,
 			rooms: [],
 			roomId: '',
@@ -135,29 +171,53 @@ export default {
 					text: 'This is the second action'
 				}
 			],
-			typingUsers: {}
+			typingUsers: {},
+			showVideoCall: false,
+			chatReady: false
 		}
 	},
 
-	computed: {
+  computed: {
+		internalCurrentUserId() {
+			return this.loggedInUserId || this.currentUserId
+		},
 		loadedRooms() {
 			const loadedRaw = this.rooms.slice(0, this.roomsLoadedCount)
+			console.log('🔍 Raw rooms before mapping:', loadedRaw)
+			
 			// Map server rooms (using _id/id) to component rooms (using roomId)
-			const mapped = loadedRaw.map(r => ({
-				roomId: r._id || r.id,
-				roomName: r.roomName,
-				avatar: r.avatar,
-				users: (r.users || []).map(u => ({
-					_id: u._id || u.id,
-					username: u.username,
-					avatar: u.avatar,
-					status: u.status
-				})),
-				unreadCount: r.unreadCount || 0,
-				typingUsers: r.typingUsers || [],
-				index: r.index ?? r.lastUpdated ?? r.lastMessage?.timestamp ?? 0,
-				lastMessage: r.lastMessage ? { ...r.lastMessage } : null
-			}))
+			const mapped = loadedRaw.map(r => {
+				console.log('🔍 Mapping room:', r)
+				
+				// Ensure room has valid structure
+				if (!r._id && !r.id) {
+					console.error('❌ Room missing ID:', r)
+					return null
+				}
+				
+				const roomId = r._id || r.id
+				const roomName = r.roomName || 'Unnamed Room'
+				const users = Array.isArray(r.users) ? r.users : []
+				
+				const mappedRoom = {
+					roomId: roomId,
+					roomName: roomName,
+					avatar: r.avatar || null,
+					users: users.map(u => ({
+						_id: u._id || u.id,
+						username: u.username || 'Unknown',
+						avatar: u.avatar || null,
+						status: u.status || { state: 'offline' }
+					})),
+					unreadCount: r.unreadCount || 0,
+					typingUsers: r.typingUsers || [],
+					index: r.index ?? r.lastUpdated ?? r.lastMessage?.timestamp ?? 0,
+					lastMessage: r.lastMessage ? { ...r.lastMessage } : null
+				}
+				console.log('🔍 Mapped room:', mappedRoom)
+				return mappedRoom
+			}).filter(r => r !== null) // Remove any invalid rooms
+			
 			console.log('Loaded rooms for vue-advanced-chat (mapped):', mapped)
 			return mapped
 		},
@@ -167,13 +227,22 @@ export default {
 	},
 
 	async mounted() {
-		console.log('ChatContainer mounted')
-		console.log('ChatWindow ref:', this.$refs.chatWindow)
+		console.log('🚀 ChatContainer mounted')
 		
-		await this.initializeChat()
+		try {
+			await this.initializeChat()
+		} catch (e) {
+			console.error('❌ Initialization failed, continuing without socket:', e)
+		}
 		this.setupSocketListeners()
-		this.fetchRooms()
+		// fetchRooms is now called in initializeChat, so remove duplicate call
 		this.fetchAllUsers()
+		
+		// Don't set chatReady here - wait for rooms to be loaded
+		
+		// Wait for next tick to ensure DOM is updated
+		await this.$nextTick()
+		console.log('🔍 ChatWindow ref after ready:', this.$refs.chatWindow)
 		
 		// Add styles to the component
 		this.$nextTick(async () => {
@@ -199,6 +268,10 @@ export default {
 	},
 
 	methods: {
+			onTextareaAction() {
+				// Video call is handled by the core library now
+				console.log('Video call initiated from core library')
+			},
 		async loadComponentStyles() {
 			try {
 				// For now, just return empty string
@@ -213,12 +286,43 @@ export default {
 
 		async initializeChat() {
 			try {
+				console.log('🚀 Starting chat initialization...')
+				console.log('👤 Current user ID:', this.currentUserId)
+				
 				const user = await chatService.initialize(this.currentUserId)
-				console.log('Chat initialized with user:', user)
+				console.log('✅ Chat initialized with user:', user)
+				
+				this.loggedInUserId = user?._id || user?.id || ''
+				console.log('🆔 Logged in user ID set to:', this.loggedInUserId)
+				
+				// Fetch rooms after initialization
+				console.log('📥 Fetching rooms after initialization...')
+				await this.fetchRooms()
+				
+				// Load messages for the first room if available
+				if (this.rooms && this.rooms.length > 0) {
+					console.log('📨 Loading messages for first room...')
+					this.roomId = this.rooms[0]._id || this.rooms[0].id
+					await this.fetchMessages({ room: this.rooms[0], options: {} })
+				}
+				
+				// Set chatReady after rooms and messages are loaded
+				// But only if we have valid rooms
+				if (this.rooms && this.rooms.length > 0 && this.loadedRooms.length > 0) {
+					this.chatReady = true
+					console.log('✅ Chat is ready!')
+				} else {
+					console.warn('⚠️ No valid rooms loaded, chat not ready')
+					// Set chatReady anyway to show empty state
+					this.chatReady = true
+				}
+				
 			} catch (error) {
-				console.error('Failed to initialize chat:', error)
+				console.error('❌ Failed to initialize chat:', error)
 			}
 		},
+
+
 
 		setupSocketListeners() {
 			chatService.setupSocketListeners({
@@ -232,7 +336,10 @@ export default {
 				onUserStartedTyping: this.handleUserStartedTyping.bind(this),
 				onUserStoppedTyping: this.handleUserStoppedTyping.bind(this),
 				onMessageReactionAdded: this.handleMessageReactionAdded.bind(this),
-				onMessageReactionRemoved: this.handleMessageReactionRemoved.bind(this)
+				onMessageReactionRemoved: this.handleMessageReactionRemoved.bind(this),
+				onWebRTCOffer: this.onWebRTCOffer.bind(this),
+				onWebRTCAnswer: this.onWebRTCAnswer.bind(this),
+				onWebRTCCandidate: this.onWebRTCCandidate.bind(this)
 			})
 		},
 
@@ -317,6 +424,23 @@ export default {
 			this.updateRoomTypingUsers(roomId)
 		},
 
+		// --- WebRTC signaling handlers ---
+		onWebRTCOffer({ roomId, sdp, fromUserId }) {
+			if (roomId !== this.roomId || fromUserId === this.loggedInUserId) return
+			// Forward to socket service
+			chatService.sendWebRTCAnswer(roomId, sdp, this.loggedInUserId)
+		},
+		onWebRTCAnswer({ roomId, sdp, fromUserId }) {
+			if (roomId !== this.roomId || fromUserId === this.loggedInUserId) return
+			// Forward to socket service
+			chatService.sendWebRTCAnswer(roomId, sdp, this.loggedInUserId)
+		},
+		onWebRTCCandidate({ roomId, candidate, fromUserId }) {
+			if (roomId !== this.roomId || fromUserId === this.loggedInUserId) return
+			// Forward to socket service
+			chatService.sendWebRTCCandidate(roomId, candidate, this.loggedInUserId)
+		},
+
 		updateRoomTypingUsers(roomId) {
 			const room = this.rooms.find(r => r._id === roomId)
 			if (room) {
@@ -380,12 +504,15 @@ export default {
 		},
 
 		async fetchRooms() {
+			console.log('🔍 Starting to fetch rooms...')
 			this.resetRooms()
 			
 			try {
 				const rooms = await chatService.getRooms(this.roomsPerPage)
-				console.log('Fetched rooms:', rooms)
+				console.log('✅ Fetched rooms successfully:', rooms)
+				console.log('📊 Rooms count:', rooms.length)
 				
+				// Store rooms as-is, loadedRooms computed property will handle mapping
 				this.rooms = rooms
 				this.roomsLoadedCount = rooms.length
 				this.loadingRooms = false
@@ -393,12 +520,22 @@ export default {
 				// Force roomsLoaded to true even if no rooms
 				this.roomsLoaded = true
 				
+				console.log('🎯 Rooms state updated:', {
+					rooms: this.rooms,
+					roomsLoaded: this.roomsLoaded,
+					loadingRooms: this.loadingRooms,
+					roomsLoadedCount: this.roomsLoadedCount
+				})
+				
 				if (this.rooms.length > 0) {
-					this.roomId = this.rooms[0]._id || this.rooms[0].id || this.rooms[0].roomId
+					this.roomId = this.rooms[0]._id || this.rooms[0].id
+					console.log('🏠 First room selected:', this.roomId)
 					this.fetchMessages({ room: this.rooms[0], options: {} })
+				} else {
+					console.log('⚠️ No rooms found')
 				}
 			} catch (error) {
-				console.error('Error fetching rooms:', error)
+				console.error('❌ Error fetching rooms:', error)
 				this.loadingRooms = false
 				this.roomsLoaded = true
 			}
@@ -434,14 +571,14 @@ export default {
 
 			if (options.reset) {
 				this.resetMessages()
-				this.roomId = (room && (room._id || room.id || room.roomId)) || this.roomId
+				this.roomId = (room && (room._id || room.id)) || this.roomId
 			}
 
 			this.selectedRoom = room
 			this.messagesLoaded = false
 
 			try {
-				const selectedRoomId = (room && (room._id || room.id || room.roomId)) || this.roomId
+				const selectedRoomId = (room && (room._id || room.id)) || this.roomId
 				const messages = await chatService.getMessages(selectedRoomId, {
 					limit: this.messagesPerPage,
 					lastLoadedMessage: this.lastLoadedMessage
@@ -471,9 +608,13 @@ export default {
 		},
 
 		formatMessage(room, message) {
+			// Convert timestamp to Date object for parsing
+			const messageDate = new Date(message.timestamp)
+			
 			const formattedMessage = {
 				...message,
-				date: parseTimestamp(message.timestamp, message.date)
+				date: parseTimestamp(messageDate, 'DD MMMM YYYY'),
+				timestamp: parseTimestamp(messageDate, 'HH:mm')
 			}
 
 			if (!message.system) {
@@ -518,22 +659,26 @@ export default {
 
 		async sendMessage({ content, roomId, files, replyMessage }) {
 			try {
+				console.log('📤 Sending message:', { content, roomId, files: files?.length, replyMessage })
 				const message = await chatService.sendMessage(roomId, {
 					content,
 					files,
 					replyMessage
 				})
+				console.log('✅ Message sent:', message)
 
 				if (files && files.length) {
+					console.log('📁 Processing files:', files.length)
 					message.files = []
 					
 					for (let index = 0; index < files.length; index++) {
 						const file = files[index]
+						console.log(`📎 Uploading file ${index + 1}/${files.length}:`, file.name)
 						await this.uploadFile({ file, messageId: message._id, roomId })
 					}
 				}
 			} catch (error) {
-				console.error('Error sending message:', error)
+				console.error('❌ Error sending message:', error)
 			}
 		},
 
@@ -555,7 +700,9 @@ export default {
 
 		async uploadFile({ file, messageId, roomId }) {
 			try {
+				console.log('🎵 Uploading file:', file.name, 'Type:', file.type, 'Size:', file.size)
 				const uploadedFile = await chatService.uploadFile(file)
+				console.log('✅ File uploaded successfully:', uploadedFile)
 				
 				const message = this.messages.find(m => m._id === messageId)
 				if (message) {
@@ -569,9 +716,10 @@ export default {
 						preview: `http://localhost:3001${uploadedFile.url}`,
 						progress: 100
 					})
+					console.log('📁 File added to message:', message.files)
 				}
 			} catch (error) {
-				console.error('Error uploading file:', error)
+				console.error('❌ Error uploading file:', error)
 			}
 		},
 
@@ -612,7 +760,7 @@ export default {
 
 			try {
 				const user = await chatService.getUserByUsername(this.addRoomUsername)
-				const room = await chatService.createRoom([user._id])
+				const room = await chatService.createRoom([user._id], this.addRoomUsername)
 				
 				this.addNewRoom = false
 				this.addRoomUsername = ''
@@ -703,6 +851,25 @@ export default {
 			} catch (error) {
 				console.error('Error fetching users:', error)
 			}
+		},
+
+		// --- WebRTC signaling handlers ---
+		onWebRTCOffer(data) {
+			console.log('WebRTC Offer received:', data)
+			// Forward to socket service
+			chatService.sendWebRTCOffer(data.roomId, data.sdp, this.loggedInUserId)
+		},
+
+		onWebRTCAnswer(data) {
+			console.log('WebRTC Answer received:', data)
+			// Forward to socket service
+			chatService.sendWebRTCAnswer(data.roomId, data.sdp, this.loggedInUserId)
+		},
+
+		onWebRTCCandidate(data) {
+			console.log('WebRTC Candidate received:', data)
+			// Forward to socket service
+			chatService.sendWebRTCCandidate(data.roomId, data.candidate, this.loggedInUserId)
 		}
 	}
 }

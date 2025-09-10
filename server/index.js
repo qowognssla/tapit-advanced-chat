@@ -42,12 +42,8 @@ app.use('/uploads', express.static(uploadsDir));
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const userId = req.body.userId;
-    const userDir = path.join(uploadsDir, userId);
-    if (!fs.existsSync(userDir)) {
-      fs.mkdirSync(userDir, { recursive: true });
-    }
-    cb(null, userDir);
+    // Store all files in the main uploads directory first
+    cb(null, uploadsDir);
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -69,7 +65,7 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
     return res.status(400).json({ error: 'No file uploaded' });
   }
   
-  const fileUrl = `/uploads/${req.body.userId}/${req.file.filename}`;
+  const fileUrl = `/uploads/${req.file.filename}`;
   res.json({ url: fileUrl, filename: req.file.filename });
 });
 

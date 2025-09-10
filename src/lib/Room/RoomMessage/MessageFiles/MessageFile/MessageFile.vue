@@ -107,7 +107,7 @@ export default {
 
 	computed: {
 		isImageLoading() {
-			return this.file.url.indexOf('blob:http') !== -1 || this.imageLoading
+			return (this.file.url && this.file.url.indexOf('blob:http') !== -1) || this.imageLoading
 		},
 		isImage() {
 			return isImageFile(this.file)

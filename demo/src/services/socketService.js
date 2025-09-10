@@ -6,36 +6,63 @@ class SocketService {
     this.socket = null;
     this.listeners = new Map();
     this.connected = false;
+    this.connectionPromise = null;
+    this.pendingEmits = [];
   }
 
   connect() {
     if (this.socket && this.connected) {
-      return this.socket;
+      return Promise.resolve(this.socket);
     }
 
-    this.socket = io(SOCKET_URL, {
-      transports: ['websocket'],
-      autoConnect: true,
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
+    if (this.connectionPromise) {
+      return this.connectionPromise;
+    }
+
+    this.connectionPromise = new Promise((resolve, reject) => {
+      this.socket = io(SOCKET_URL, {
+        transports: ['websocket'],
+        autoConnect: true,
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+      });
+
+      this.socket.on('connect', () => {
+        console.log('Socket connected:', this.socket.id);
+        this.connected = true;
+        
+        // Process pending emits
+        this.pendingEmits.forEach(({ event, data }) => {
+          this.socket.emit(event, data);
+        });
+        this.pendingEmits = [];
+        
+        resolve(this.socket);
+      });
+
+      this.socket.on('disconnect', () => {
+        console.log('Socket disconnected');
+        this.connected = false;
+        this.connectionPromise = null;
+      });
+
+      this.socket.on('error', (error) => {
+        console.error('Socket error:', error);
+        this.connectionPromise = null;
+        reject(error);
+      });
+
+      // Timeout after 10 seconds
+      setTimeout(() => {
+        if (!this.connected) {
+          this.connectionPromise = null;
+          reject(new Error('Socket connection timeout'));
+        }
+      }, 10000);
     });
 
-    this.socket.on('connect', () => {
-      console.log('Socket connected:', this.socket.id);
-      this.connected = true;
-    });
-
-    this.socket.on('disconnect', () => {
-      console.log('Socket disconnected');
-      this.connected = false;
-    });
-
-    this.socket.on('error', (error) => {
-      console.error('Socket error:', error);
-    });
-
-    return this.socket;
+    return this.connectionPromise;
   }
 
   disconnect() {
@@ -43,16 +70,26 @@ class SocketService {
       this.socket.disconnect();
       this.socket = null;
       this.connected = false;
+      this.connectionPromise = null;
+      this.pendingEmits = [];
       this.listeners.clear();
     }
   }
 
   emit(event, data) {
     if (!this.socket || !this.connected) {
-      console.error('Socket not connected');
+      console.warn('Socket not connected, queuing emit:', event);
+      this.pendingEmits.push({ event, data });
       return;
     }
     this.socket.emit(event, data);
+  }
+
+  async emitWhenReady(event, data) {
+    if (!this.connected) {
+      await this.connect();
+    }
+    this.emit(event, data);
   }
 
   on(event, callback) {
@@ -132,6 +169,17 @@ class SocketService {
 
   removeRoomUser(roomId, userId) {
     this.emit('remove-room-user', { roomId, userId });
+  }
+
+  // --- WebRTC signaling helpers ---
+  sendWebRTCOffer(roomId, sdp, fromUserId) {
+    this.emit('webrtc-offer', { roomId, sdp, fromUserId })
+  }
+  sendWebRTCAnswer(roomId, sdp, fromUserId) {
+    this.emit('webrtc-answer', { roomId, sdp, fromUserId })
+  }
+  sendWebRTCCandidate(roomId, candidate, fromUserId) {
+    this.emit('webrtc-candidate', { roomId, candidate, fromUserId })
   }
 }
 

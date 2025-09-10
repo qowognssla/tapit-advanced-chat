@@ -27,7 +27,13 @@
 	},
 	"homepage": "https://github.com/advanced-chat/vue-advanced-chat#readme",
 	"main": "./dist/vue-advanced-chat.umd.js",
-	"module": "./dist/vue-advanced-chat.es.js",
+	"module": "./dist/vue-advanced-chat.mjs",
+	"exports": {
+		".": {
+			"import": "./dist/vue-advanced-chat.mjs",
+			"require": "./dist/vue-advanced-chat.umd.js"
+		}
+	},
 	"unpkg": "./dist/vue-advanced-chat.umd.js",
 	"jsdelivr": "./dist/vue-advanced-chat.umd.js",
 	"scripts": {
@@ -61,7 +67,7 @@
 		"eslint": "7.32.0",
 		"eslint-plugin-vue": "8.0.3",
 		"node-sass": "8.0.0",
-		"sass": "1.56.1",
+		"sass": "^1.92.1",
 		"semantic-release": "^22.0.5",
 		"typescript": "4.6.x",
 		"vite": "^7.0.4",

@@ -57,7 +57,13 @@ export default {
 	},
 
 	mounted() {
-		this.$refs.modal.focus()
+		try {
+			if (this.$refs.modal) {
+				this.$refs.modal.focus()
+			}
+		} catch (error) {
+			console.warn('Error focusing modal:', error)
+		}
 	},
 
 	methods: {

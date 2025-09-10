@@ -102,6 +102,16 @@
 				</template>
 			</media-preview>
 		</transition>
+
+		<video-call
+			v-if="showVideoCall"
+			:visible="showVideoCall"
+			:room-id="room.roomId"
+			@close="showVideoCall = false"
+			@webrtc-offer="handleWebRTCOffer"
+			@webrtc-answer="handleWebRTCAnswer"
+			@webrtc-candidate="handleWebRTCCandidate"
+		/>
 	</div>
 </template>
 
@@ -109,6 +119,7 @@
 import RoomsList from './RoomsList/RoomsList'
 import Room from './Room/Room'
 import MediaPreview from './MediaPreview/MediaPreview'
+import VideoCall from './components/VideoCall/VideoCall'
 
 import locales from '../locales'
 import { defaultThemeStyles, cssThemeVars } from '../themes'
@@ -122,7 +133,8 @@ export default {
 	components: {
 		RoomsList,
 		Room,
-		MediaPreview
+		MediaPreview,
+		VideoCall
 	},
 
 	props: {
@@ -227,6 +239,9 @@ export default {
 		'textarea-action-handler',
 		'fetch-more-rooms',
 		'add-room',
+		'webrtc-offer',
+		'webrtc-answer',
+		'webrtc-candidate',
 		'search-room',
 		'room-action-handler',
 		'message-selection-action-handler'
@@ -240,7 +255,8 @@ export default {
 			showRoomsList: true,
 			isMobile: false,
 			showMediaPreview: false,
-			previewFile: {}
+			previewFile: {},
+			showVideoCall: false
 		}
 	},
 
@@ -562,10 +578,20 @@ export default {
 			})
 		},
 		textareaActionHandler(message) {
+			this.showVideoCall = true
 			this.$emit('textarea-action-handler', {
 				message,
 				roomId: this.room.roomId
 			})
+		},
+		handleWebRTCOffer(data) {
+			this.$emit('webrtc-offer', data)
+		},
+		handleWebRTCAnswer(data) {
+			this.$emit('webrtc-answer', data)
+		},
+		handleWebRTCCandidate(data) {
+			this.$emit('webrtc-candidate', data)
 		}
 	}
 }

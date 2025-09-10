@@ -29,7 +29,7 @@
 					}"
 				>
 					<emoji-picker
-						v-if="emojiOpened"
+						v-if="shouldRenderEmojiPicker"
 						ref="emojiPicker"
 						:data-source="emojiDataSource"
 					/>
@@ -68,54 +68,95 @@ export default {
 		}
 	},
 
+	computed: {
+		isEmojiPickerReady() {
+			return typeof customElements !== 'undefined' && customElements.get('emoji-picker')
+		},
+		shouldRenderEmojiPicker() {
+			return this.emojiOpened && this.isEmojiPickerReady
+		}
+	},
+
 	watch: {
 		emojiOpened(val) {
-			if (val) {
+			if (val && this.isEmojiPickerReady) {
 				setTimeout(() => {
-					this.addCustomStyling()
-
-					this.$refs.emojiPicker.shadowRoot.addEventListener(
-						'emoji-click',
-						({ detail }) => {
-							this.$emit('add-emoji', {
-								unicode: detail.unicode
-							})
+					try {
+						// Check if emoji-picker custom element is defined
+						if (!customElements.get('emoji-picker')) {
+							console.warn('emoji-picker custom element not defined')
+							return
 						}
-					)
+
+						if (this.$refs.emojiPicker && this.$refs.emojiPicker.shadowRoot) {
+							this.addCustomStyling()
+
+							this.$refs.emojiPicker.shadowRoot.addEventListener(
+								'emoji-click',
+								({ detail }) => {
+									this.$emit('add-emoji', {
+										unicode: detail.unicode
+									})
+								}
+							)
+						}
+					} catch (error) {
+						console.warn('Error setting up emoji picker:', error)
+					}
 				}, 0)
 			}
 		}
 	},
 
+	beforeUnmount() {
+		// Clean up any event listeners or references
+		try {
+			if (this.$refs.emojiPicker && this.$refs.emojiPicker.shadowRoot) {
+				// Remove any event listeners if needed
+			}
+		} catch (error) {
+			// Ignore errors during cleanup
+			console.warn('Error during emoji picker cleanup:', error)
+		}
+	},
+
 	methods: {
 		addCustomStyling() {
-			const picker = `.picker {
-				border: none;
-			}`
+			try {
+				if (!this.$refs.emojiPicker || !this.$refs.emojiPicker.shadowRoot) {
+					return
+				}
 
-			const nav = `.nav {
-				overflow-x: auto;
-			}`
+				const picker = `.picker {
+					border: none;
+				}`
 
-			const searchBox = `.search-wrapper {
-				padding-right: 2px;
-				padding-left: 2px;
-			}`
+				const nav = `.nav {
+					overflow-x: auto;
+				}`
 
-			const search = `input.search {
-				height: 32px;
-				font-size: 14px;
-				border-radius: 10rem;
-				border: var(--chat-border-style);
-				padding: 5px 10px;
-				outline: none;
-				background: var(--chat-bg-color-input);
-				color: var(--chat-color);
-			}`
+				const searchBox = `.search-wrapper {
+					padding-right: 2px;
+					padding-left: 2px;
+				}`
 
-			const style = document.createElement('style')
-			style.textContent = picker + nav + searchBox + search
-			this.$refs.emojiPicker.shadowRoot.appendChild(style)
+				const search = `input.search {
+					height: 32px;
+					font-size: 14px;
+					border-radius: 10rem;
+					border: var(--chat-border-style);
+					padding: 5px 10px;
+					outline: none;
+					background: var(--chat-bg-color-input);
+					color: var(--chat-color);
+				}`
+
+				const style = document.createElement('style')
+				style.textContent = picker + nav + searchBox + search
+				this.$refs.emojiPicker.shadowRoot.appendChild(style)
+			} catch (error) {
+				console.warn('Error adding custom styling to emoji picker:', error)
+			}
 		},
 		openEmoji(ev) {
 			this.$emit('open-emoji', !this.emojiOpened)

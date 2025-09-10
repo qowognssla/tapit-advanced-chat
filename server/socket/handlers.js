@@ -220,6 +220,18 @@ module.exports = (io, socket, db) => {
     }
   });
 
+  // --- WebRTC Signaling ---
+  // Clients will emit signaling events scoped by room
+  socket.on('webrtc-offer', ({ roomId, sdp, fromUserId }) => {
+    socket.to(`room-${roomId}`).emit('webrtc-offer', { roomId, sdp, fromUserId })
+  })
+  socket.on('webrtc-answer', ({ roomId, sdp, fromUserId }) => {
+    socket.to(`room-${roomId}`).emit('webrtc-answer', { roomId, sdp, fromUserId })
+  })
+  socket.on('webrtc-candidate', ({ roomId, candidate, fromUserId }) => {
+    socket.to(`room-${roomId}`).emit('webrtc-candidate', { roomId, candidate, fromUserId })
+  })
+
   // Handle creating a new room
   socket.on('create-room', async ({ users, roomName }) => {
     try {

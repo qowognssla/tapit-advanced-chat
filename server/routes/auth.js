@@ -15,6 +15,7 @@ router.post('/login', async (req, res) => {
     
     // Check if user exists
     let user = await db.getUserByUsername(username);
+    let isNewUser = false;
     
     if (!user) {
       // Create new user for demo
@@ -23,6 +24,24 @@ router.post('/login', async (req, res) => {
       
       user = await db.createUser(userId, username, null, avatar);
       user = await db.getUserById(userId);
+      isNewUser = true;
+    }
+    
+    // Create a default room for new users or if no rooms exist
+    if (isNewUser) {
+      const roomId = 'room_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      await db.createRoom(roomId, `Welcome ${username}!`);
+      await db.addUserToRoom(roomId, user.id);
+      console.log(`Created default room ${roomId} for user ${user.id}`);
+    } else {
+      // Check if user has any rooms
+      const userRooms = await db.getUserRooms(user.id, 1, 0);
+      if (userRooms.length === 0) {
+        const roomId = 'room_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        await db.createRoom(roomId, `Welcome ${username}!`);
+        await db.addUserToRoom(roomId, user.id);
+        console.log(`Created default room ${roomId} for existing user ${user.id}`);
+      }
     }
     
     // Generate token
@@ -47,6 +66,9 @@ router.post('/login', async (req, res) => {
 });
 
 module.exports = router;
+
+
+
 
 
 

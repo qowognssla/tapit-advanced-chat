@@ -16,8 +16,8 @@ class ChatService {
       setAuthToken(loginResponse.token);
       this.currentUser = loginResponse.user;
 
-      // Connect to socket
-      socketService.connect();
+      // Connect to socket and wait for connection
+      await socketService.connect();
       socketService.onUserConnect(this.currentUser._id);
 
       return this.currentUser;
@@ -46,14 +46,27 @@ class ChatService {
 
   // Room methods
   async getRooms(limit = 15, offset = 0) {
-    const rooms = await apiService.getRooms(limit, offset);
-    
-    // Join all rooms via socket
-    rooms.forEach(room => {
-      socketService.joinRoom(room._id);
-    });
+    try {
+      console.log('🔍 ChatService: Getting rooms with limit:', limit, 'offset:', offset);
+      const rooms = await apiService.getRooms(limit, offset);
+      console.log('✅ ChatService: API returned rooms:', rooms);
+      
+      // Join all rooms via socket (only if connected)
+      if (socketService.connected) {
+        rooms.forEach(room => {
+          console.log('🔗 ChatService: Joining room via socket:', room._id);
+          socketService.joinRoom(room._id);
+        });
+      } else {
+        console.warn('⚠️ ChatService: Socket not connected, skipping room joins');
+      }
 
-    return rooms;
+      console.log('🎯 ChatService: Returning rooms:', rooms);
+      return rooms;
+    } catch (error) {
+      console.error('❌ ChatService: Error getting rooms:', error);
+      throw error;
+    }
   }
 
   async createRoom(users, roomName = null) {
@@ -176,6 +189,17 @@ class ChatService {
     }
   }
 
+  // WebRTC signaling wrappers
+  sendWebRTCOffer(roomId, sdp, fromUserId) {
+    socketService.sendWebRTCOffer(roomId, sdp, fromUserId)
+  }
+  sendWebRTCAnswer(roomId, sdp, fromUserId) {
+    socketService.sendWebRTCAnswer(roomId, sdp, fromUserId)
+  }
+  sendWebRTCCandidate(roomId, candidate, fromUserId) {
+    socketService.sendWebRTCCandidate(roomId, candidate, fromUserId)
+  }
+
   // Socket event listeners setup
   setupSocketListeners(callbacks) {
     const {
@@ -189,7 +213,10 @@ class ChatService {
       onUserStartedTyping,
       onUserStoppedTyping,
       onMessageReactionAdded,
-      onMessageReactionRemoved
+      onMessageReactionRemoved,
+      onWebRTCOffer,
+      onWebRTCAnswer,
+      onWebRTCCandidate
     } = callbacks;
 
     if (onMessageAdded) {
@@ -225,6 +252,17 @@ class ChatService {
     if (onMessageReactionRemoved) {
       socketService.on('message-reaction-removed', onMessageReactionRemoved);
     }
+
+    // WebRTC signaling events
+    if (onWebRTCOffer) {
+      socketService.on('webrtc-offer', onWebRTCOffer)
+    }
+    if (onWebRTCAnswer) {
+      socketService.on('webrtc-answer', onWebRTCAnswer)
+    }
+    if (onWebRTCCandidate) {
+      socketService.on('webrtc-candidate', onWebRTCCandidate)
+    }
   }
 
   // Clean up socket listeners
@@ -240,6 +278,11 @@ class ChatService {
     socketService.off('user-stopped-typing');
     socketService.off('message-reaction-added');
     socketService.off('message-reaction-removed');
+
+    // WebRTC signaling
+    socketService.off('webrtc-offer');
+    socketService.off('webrtc-answer');
+    socketService.off('webrtc-candidate');
   }
 }
 

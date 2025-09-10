@@ -46,11 +46,7 @@
 							:emoji-data-source="emojiDataSource"
 							@add-emoji="sendMessageReaction"
 							@open-emoji="openEmoji"
-						>
-							<template v-for="(idx, name) in $slots" #[name]="data">
-								<slot :name="name" v-bind="data" />
-							</template>
-						</emoji-picker-container>
+						/>
 					</slot>
 				</div>
 			</transition-group>

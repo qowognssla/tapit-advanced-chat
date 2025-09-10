@@ -133,11 +133,7 @@
 							:emoji-data-source="emojiDataSource"
 							@add-emoji="addEmoji"
 							@open-emoji="emojiOpened = $event"
-						>
-							<template #emoji-picker-icon>
-								<slot name="emoji-picker-icon" />
-							</template>
-						</emoji-picker-container>
+						/>
 					</slot>
 				</div>
 
@@ -187,7 +183,7 @@
 </template>
 
 <script>
-import { Database } from 'emoji-picker-element'
+// import { Database } from 'emoji-picker-element'
 
 import SvgIcon from '../../../components/SvgIcon/SvgIcon'
 import EmojiPickerContainer from '../../../components/EmojiPickerContainer/EmojiPickerContainer'
@@ -273,7 +269,7 @@ export default {
 			activeUpOrDownEmojis: null,
 			activeUpOrDownUsersTag: null,
 			activeUpOrDownTemplatesText: null,
-			emojisDB: new Database({ dataSource: this.emojiDataSource }),
+			emojisDB: null, // new Database({ dataSource: this.emojiDataSource }),
 			emojiOpened: false,
 			keepKeyboardOpen: false,
 			filteredEmojis: [],
@@ -812,6 +808,11 @@ export default {
 			this.files = []
 			this.emojiOpened = false
 			this.preventKeyboardFromClosing()
+
+			// Ensure textarea value is reset
+			if (this.getTextareaRef()) {
+				this.getTextareaRef().value = ''
+			}
 
 			if (this.textareaAutoFocus || !initRoom) {
 				setTimeout(() => this.focusTextarea(disableMobileFocus))
