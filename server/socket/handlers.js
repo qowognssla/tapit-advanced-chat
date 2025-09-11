@@ -246,8 +246,20 @@ module.exports = (io, socket, db) => {
     try {
       const roomId = 'room_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
       
+      // If no room name provided, generate from user names
+      let finalRoomName = roomName;
+      if (!finalRoomName) {
+        // Get all user names
+        const userPromises = users.map(userId => db.getUserById(userId));
+        const allUsers = await Promise.all(userPromises);
+        const userNames = allUsers.filter(u => u).map(u => u.username);
+        
+        // Create room name from user names (e.g., "Luke, Leia")
+        finalRoomName = userNames.join(', ');
+      }
+      
       // Create room
-      await db.createRoom(roomId, roomName);
+      await db.createRoom(roomId, finalRoomName);
       
       // Add users to room
       for (const userId of users) {

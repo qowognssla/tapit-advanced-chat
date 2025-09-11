@@ -544,29 +544,39 @@ export default {
 			this.focusTextarea()
 		},
 		toggleRecorder(recording) {
+			console.log('🎙️ Toggle recorder:', recording)
 			this.isRecording = recording
 
 			if (!this.recorder.isRecording) {
+				console.log('🎙️ Starting recording...')
 				setTimeout(() => this.recorder.start(), 200)
 			} else {
 				try {
+					console.log('🎙️ Stopping recording...')
 					this.recorder.stop()
 
 					const record = this.recorder.records[0]
+					console.log('🎙️ Record:', record)
 
-					this.files.push({
-						blob: record.blob,
-						name: `audio.${this.format}`,
-						size: record.blob.size,
-						duration: record.duration,
-						type: record.blob.type,
-						audio: true,
-						localUrl: URL.createObjectURL(record.blob)
-					})
+					if (record && record.blob) {
+						this.files.push({
+							blob: record.blob,
+							name: `audio.${this.format}`,
+							size: record.blob.size,
+							duration: record.duration,
+							type: record.blob.type,
+							audio: true,
+							localUrl: URL.createObjectURL(record.blob)
+						})
 
-					this.recorder = this.initRecorder()
-					this.sendMessage()
-				} catch {
+						this.recorder = this.initRecorder()
+						this.sendMessage()
+					} else {
+						console.error('❌ No recording found')
+						this.recorder = this.initRecorder()
+					}
+				} catch (error) {
+					console.error('❌ Error stopping recorder:', error)
 					setTimeout(() => this.stopRecorder(), 100)
 				}
 			}
@@ -838,9 +848,11 @@ export default {
 				micFailed: this.micFailed
 			})
 		},
-		micFailed() {
+		micFailed(error) {
+			console.error('❌ Microphone access failed:', error)
 			this.isRecording = false
 			this.recorder = this.initRecorder()
+			alert('Microphone access failed. Please check your browser permissions and ensure you are using HTTPS or localhost.')
 		}
 	}
 }

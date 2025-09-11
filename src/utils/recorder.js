@@ -27,6 +27,7 @@ export default class {
 	}
 
 	start() {
+		console.log('🎙️ Recorder.start() called')
 		const constraints = {
 			video: false,
 			audio: {
@@ -37,6 +38,7 @@ export default class {
 
 		this.beforeRecording && this.beforeRecording('start recording')
 
+		console.log('🎙️ Requesting microphone access...')
 		navigator.mediaDevices
 			.getUserMedia(constraints)
 			.then(this._micCaptured.bind(this))
@@ -46,6 +48,7 @@ export default class {
 		this.isRecording = true
 
 		if (!this.lameEncoder) {
+			console.log('🎙️ Creating MP3 encoder...')
 			this.lameEncoder = new Mp3Encoder(this.encoderOptions)
 		}
 	}
@@ -84,6 +87,7 @@ export default class {
 	}
 
 	_micCaptured(stream) {
+		console.log('🎙️ Microphone captured successfully!')
 		this.context = new (window.AudioContext || window.webkitAudioContext)()
 		this.duration = this._duration
 		this.input = this.context.createMediaStreamSource(stream)
@@ -113,6 +117,7 @@ export default class {
 	}
 
 	_micError(error) {
+		console.error('❌ Microphone error:', error)
 		this.micFailed && this.micFailed(error)
 	}
 }

@@ -678,23 +678,44 @@ export default {
 		async sendMessage({ content, roomId, files, replyMessage }) {
 			try {
 				console.log('📤 Sending message:', { content, roomId, files: files?.length, replyMessage })
-				const message = await chatService.sendMessage(roomId, {
-					content,
-					files,
-					replyMessage
-				})
-				console.log('✅ Message sent:', message)
-
+				
+				// Upload files first if any
+				let uploadedFiles = []
 				if (files && files.length) {
-					console.log('📁 Processing files:', files.length)
-					message.files = []
+					console.log('📁 Uploading files before sending message:', files.length)
 					
 					for (let index = 0; index < files.length; index++) {
 						const file = files[index]
 						console.log(`📎 Uploading file ${index + 1}/${files.length}:`, file.name)
-						await this.uploadFile({ file, messageId: message._id, roomId })
+						
+						try {
+							const uploadedFile = await chatService.uploadFile(file)
+							console.log('✅ File uploaded successfully:', uploadedFile)
+							
+							uploadedFiles.push({
+								name: file.name,
+								size: file.size,
+								type: file.type,
+								extension: file.extension || file.type,
+								url: `http://localhost:3001${uploadedFile.url}`,
+								preview: `http://localhost:3001${uploadedFile.url}`,
+								progress: 100,
+								audio: file.audio || false
+							})
+						} catch (uploadError) {
+							console.error(`❌ Error uploading file ${file.name}:`, uploadError)
+						}
 					}
 				}
+				
+				// Now send message with uploaded files
+				const message = await chatService.sendMessage(roomId, {
+					content,
+					files: uploadedFiles,
+					replyMessage
+				})
+				console.log('✅ Message sent with files:', message)
+				
 			} catch (error) {
 				console.error('❌ Error sending message:', error)
 			}
@@ -716,30 +737,7 @@ export default {
 			}
 		},
 
-		async uploadFile({ file, messageId, roomId }) {
-			try {
-				console.log('🎵 Uploading file:', file.name, 'Type:', file.type, 'Size:', file.size)
-				const uploadedFile = await chatService.uploadFile(file)
-				console.log('✅ File uploaded successfully:', uploadedFile)
-				
-				const message = this.messages.find(m => m._id === messageId)
-				if (message) {
-					if (!message.files) message.files = []
-					message.files.push({
-						name: file.name,
-						size: file.size,
-						type: file.type,
-						extension: file.extension || file.type,
-						url: `http://localhost:3001${uploadedFile.url}`,
-						preview: `http://localhost:3001${uploadedFile.url}`,
-						progress: 100
-					})
-					console.log('📁 File added to message:', message.files)
-				}
-			} catch (error) {
-				console.error('❌ Error uploading file:', error)
-			}
-		},
+		// Upload file method is no longer needed as files are uploaded before sending message
 
 		openFile({ file }) {
 			const targetUrl = file?.file?.url || file?.url
@@ -778,7 +776,8 @@ export default {
 
 			try {
 				const user = await chatService.getUserByUsername(this.addRoomUsername)
-				const room = await chatService.createRoom([user._id], this.addRoomUsername)
+				// Don't pass username as room name - let server generate it from participants
+				const room = await chatService.createRoom([user._id])
 				
 				this.addNewRoom = false
 				this.addRoomUsername = ''
