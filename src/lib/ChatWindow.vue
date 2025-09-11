@@ -51,6 +51,7 @@
 				:show-reaction-emojis="showReactionEmojisCasted"
 				:show-new-messages-divider="showNewMessagesDividerCasted"
 				:show-footer="showFooterCasted"
+				:show-video-call="showVideoCallCasted"
 				:text-messages="t"
 				:single-room="singleRoomCasted"
 				:show-rooms-list="showRoomsList && roomsListOpenedCasted"
@@ -85,6 +86,7 @@
 				@send-message-reaction="sendMessageReaction"
 				@typing-message="typingMessage"
 				@textarea-action-handler="textareaActionHandler"
+				@start-video-call="$emit('start-video-call', $event)"
 			>
 				<template v-for="el in slots" #[el.slot]="data">
 					<slot :name="el.slot" v-bind="data" />
@@ -193,6 +195,7 @@ export default {
 		showReactionEmojis: { type: [Boolean, String], default: true },
 		showNewMessagesDivider: { type: [Boolean, String], default: true },
 		showFooter: { type: [Boolean, String], default: true },
+		showVideoCall: { type: [Boolean, String], default: true },
 		textFormatting: {
 			type: [Object, String],
 			default: () => ({
@@ -244,7 +247,8 @@ export default {
 		'webrtc-candidate',
 		'search-room',
 		'room-action-handler',
-		'message-selection-action-handler'
+		'message-selection-action-handler',
+		'start-video-call'
 	],
 
 	data() {
@@ -339,6 +343,9 @@ export default {
 		},
 		showFooterCasted() {
 			return this.castBoolean(this.showFooter)
+		},
+		showVideoCallCasted() {
+			return this.castBoolean(this.showVideoCall)
 		},
 		roomInfoEnabledCasted() {
 			return this.castBoolean(this.roomInfoEnabled)

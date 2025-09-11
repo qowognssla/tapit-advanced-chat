@@ -81,6 +81,7 @@
 			@typing-message="typingMessage($event.detail[0])"
 			@textarea-action-handler="onTextareaAction($event.detail[0])"
 			@toggle-rooms-list="$emit('show-demo-options', $event.detail[0].opened)"
+			@start-video-call="startVideoCall($event.detail[0])"
 			@webrtc-offer="onWebRTCOffer($event.detail[0])"
 			@webrtc-answer="onWebRTCAnswer($event.detail[0])"
 			@webrtc-candidate="onWebRTCCandidate($event.detail[0])"
@@ -88,12 +89,14 @@
 		</vue-advanced-chat>
 
 		<!-- Video call widget -->
-		<VideoCall
-			v-if="roomId && chatReady"
+		<video-call
+			v-if="roomId && chatReady && showVideoCall"
 			ref="videoCall"
 			:visible="showVideoCall"
 			:room-id="roomId"
-			@close="() => (showVideoCall = false)"
+			:current-user-id="internalCurrentUserId"
+			:room-users="videoCallRoomUsers"
+			@close="endVideoCall"
 			@webrtc-offer="onWebRTCOffer"
 			@webrtc-answer="onWebRTCAnswer"
 			@webrtc-candidate="onWebRTCCandidate"
@@ -105,7 +108,8 @@
 import chatService from '@/services/chatService'
 import { parseTimestamp, formatTimestamp } from '@/utils/dates'
 
-import { register, VideoCall } from 'vue-advanced-chat'
+import VideoCall from './components/VideoCall/VideoCall.vue'
+import { register } from 'vue-advanced-chat'
 register()
 
 export default {
@@ -223,6 +227,11 @@ export default {
 		},
 		screenHeight() {
 			return this.isDevice ? window.innerHeight + 'px' : 'calc(100vh - 80px)'
+		},
+		videoCallRoomUsers() {
+			// Get users from the current room for video call
+			const room = this.rooms.find(r => r._id === this.roomId || r.id === this.roomId)
+			return room ? room.users : []
 		}
 	},
 
@@ -339,7 +348,9 @@ export default {
 				onMessageReactionRemoved: this.handleMessageReactionRemoved.bind(this),
 				onWebRTCOffer: this.onWebRTCOffer.bind(this),
 				onWebRTCAnswer: this.onWebRTCAnswer.bind(this),
-				onWebRTCCandidate: this.onWebRTCCandidate.bind(this)
+				onWebRTCCandidate: this.onWebRTCCandidate.bind(this),
+				onUserStartedVideoCall: this.handleUserStartedVideoCall.bind(this),
+				onUserEndedVideoCall: this.handleUserEndedVideoCall.bind(this)
 			})
 		},
 
@@ -887,6 +898,46 @@ export default {
 			console.log('WebRTC Candidate received:', data)
 			// Forward to socket service
 			chatService.sendWebRTCCandidate(data.roomId, data.candidate, this.loggedInUserId)
+		},
+
+		// Video call methods
+		startVideoCall(event) {
+			console.log('Starting video call for room:', event.roomId)
+			this.showVideoCall = true
+			
+			// Notify other participants in the room
+			chatService.emit('start-video-call', { 
+				roomId: event.roomId,
+				userId: this.internalCurrentUserId
+			})
+		},
+
+		endVideoCall() {
+			console.log('Ending video call')
+			this.showVideoCall = false
+			
+			// Notify other participants
+			if (this.roomId) {
+				chatService.emit('end-video-call', {
+					roomId: this.roomId,
+					userId: this.internalCurrentUserId
+				})
+			}
+		},
+
+		handleUserStartedVideoCall({ roomId, userId }) {
+			if (roomId === this.roomId && userId !== this.internalCurrentUserId) {
+				console.log(`User ${userId} started video call`)
+				// You can show a notification or auto-join the call
+				// For now, we'll just log it
+			}
+		},
+
+		handleUserEndedVideoCall({ roomId, userId }) {
+			if (roomId === this.roomId && userId !== this.internalCurrentUserId) {
+				console.log(`User ${userId} ended video call`)
+				// Handle user leaving the call
+			}
 		}
 	}
 }

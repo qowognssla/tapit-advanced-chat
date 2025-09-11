@@ -139,6 +139,7 @@
 			:show-audio="showAudio"
 			:show-emojis="showEmojis"
 			:show-footer="showFooter"
+			:show-video-call="showVideoCall"
 			:accepted-files="acceptedFiles"
 			:capture-files="captureFiles"
 			:multiple-files="multipleFiles"
@@ -160,6 +161,7 @@
 			@send-message="$emit('send-message', $event)"
 			@typing-message="$emit('typing-message', $event)"
 			@textarea-action-handler="$emit('textarea-action-handler', $event)"
+			@start-video-call="$emit('start-video-call', $event)"
 		>
 			<template v-for="(idx, name) in $slots" #[name]="data">
 				<slot :name="name" v-bind="data" />
@@ -211,6 +213,7 @@ export default {
 		showReactionEmojis: { type: Boolean, required: true },
 		showNewMessagesDivider: { type: Boolean, required: true },
 		showFooter: { type: Boolean, required: true },
+		showVideoCall: { type: Boolean, default: true },
 		acceptedFiles: { type: String, required: true },
 		captureFiles: { type: String, required: true },
 		multipleFiles: { type: Boolean, default: true },

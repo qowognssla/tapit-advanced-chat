@@ -200,6 +200,11 @@ class ChatService {
     socketService.sendWebRTCCandidate(roomId, candidate, fromUserId)
   }
 
+  // Generic emit method for custom events
+  emit(event, data) {
+    socketService.emit(event, data)
+  }
+
   // Socket event listeners setup
   setupSocketListeners(callbacks) {
     const {
@@ -216,7 +221,9 @@ class ChatService {
       onMessageReactionRemoved,
       onWebRTCOffer,
       onWebRTCAnswer,
-      onWebRTCCandidate
+      onWebRTCCandidate,
+      onUserStartedVideoCall,
+      onUserEndedVideoCall
     } = callbacks;
 
     if (onMessageAdded) {
@@ -262,6 +269,14 @@ class ChatService {
     }
     if (onWebRTCCandidate) {
       socketService.on('webrtc-candidate', onWebRTCCandidate)
+    }
+    
+    // Video call events
+    if (onUserStartedVideoCall) {
+      socketService.on('user-started-video-call', onUserStartedVideoCall)
+    }
+    if (onUserEndedVideoCall) {
+      socketService.on('user-ended-video-call', onUserEndedVideoCall)
     }
   }
 

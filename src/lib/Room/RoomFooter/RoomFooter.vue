@@ -153,6 +153,12 @@
 					</slot>
 				</div>
 
+				<div class="vac-svg-button" @click="startVideoCall">
+					<slot name="video-call-icon">
+						<svg-icon name="video-camera" />
+					</slot>
+				</div>
+
 				<input
 					v-if="showFiles"
 					ref="file"
@@ -230,6 +236,7 @@ export default {
 		showAudio: { type: Boolean, required: true },
 		showEmojis: { type: Boolean, required: true },
 		showFooter: { type: Boolean, required: true },
+		showVideoCall: { type: Boolean, default: true },
 		acceptedFiles: { type: String, required: true },
 		multipleFiles: { type: Boolean, default: true },
 		captureFiles: { type: String, required: true },
@@ -251,7 +258,8 @@ export default {
 		'send-message',
 		'update-edited-message-id',
 		'textarea-action-handler',
-		'typing-message'
+		'typing-message',
+		'start-video-call'
 	],
 
 	data() {
@@ -853,6 +861,9 @@ export default {
 			this.isRecording = false
 			this.recorder = this.initRecorder()
 			alert('Microphone access failed. Please check your browser permissions and ensure you are using HTTPS or localhost.')
+		},
+		startVideoCall() {
+			this.$emit('start-video-call', { roomId: this.roomId })
 		}
 	}
 }
