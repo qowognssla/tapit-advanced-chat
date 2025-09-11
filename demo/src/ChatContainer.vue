@@ -345,8 +345,17 @@ export default {
 
 		// Socket event handlers
 		handleMessageAdded({ roomId, message }) {
+			console.log('📨 Received message from socket:', {
+				_id: message._id,
+				timestamp: message.timestamp,
+				timestamp_type: typeof message.timestamp,
+				date: message.date,
+				date_type: typeof message.date
+			})
+			
 			if (roomId === this.roomId) {
-				this.messages.push(message)
+				const formattedMessage = this.formatMessage(this.selectedRoom, message)
+				this.messages.push(formattedMessage)
 			}
 		},
 
@@ -610,6 +619,15 @@ export default {
 		formatMessage(room, message) {
 			// Convert timestamp to Date object for parsing
 			const messageDate = new Date(message.timestamp)
+			
+			// Debug logging
+			console.log('📝 Formatting message:', {
+				original_timestamp: message.timestamp,
+				original_date: message.date,
+				messageDate: messageDate,
+				formatted_date: parseTimestamp(messageDate, 'DD MMMM YYYY'),
+				formatted_timestamp: parseTimestamp(messageDate, 'HH:mm')
+			})
 			
 			const formattedMessage = {
 				...message,

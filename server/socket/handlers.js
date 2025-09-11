@@ -79,6 +79,15 @@ module.exports = (io, socket, db) => {
         reactions: {}
       };
       
+      // Debug logging
+      console.log('📤 Sending message to clients:', {
+        _id: messageToSend._id,
+        timestamp: messageToSend.timestamp,
+        timestamp_type: typeof messageToSend.timestamp,
+        date: messageToSend.date,
+        date_type: typeof messageToSend.date
+      });
+      
       // Send to all users in the room
       io.to(`room-${roomId}`).emit('message-added', {
         roomId,
