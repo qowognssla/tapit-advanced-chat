@@ -241,6 +241,17 @@ module.exports = (io, socket, db) => {
     socket.to(`room-${roomId}`).emit('webrtc-candidate', { roomId, candidate, fromUserId })
   })
 
+  // Handle video call events
+  socket.on('start-video-call', ({ roomId, userId }) => {
+    console.log(`User ${userId} started video call in room ${roomId}`)
+    socket.to(`room-${roomId}`).emit('user-started-video-call', { roomId, userId })
+  })
+
+  socket.on('end-video-call', ({ roomId, userId }) => {
+    console.log(`User ${userId} ended video call in room ${roomId}`)
+    socket.to(`room-${roomId}`).emit('user-ended-video-call', { roomId, userId })
+  })
+
   // Handle creating a new room
   socket.on('create-room', async ({ users, roomName }) => {
     try {

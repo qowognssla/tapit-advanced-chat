@@ -143,16 +143,6 @@
 					</slot>
 				</div>
 
-				<div
-					v-if="textareaActionEnabled"
-					class="vac-svg-button"
-					@click="textareaActionHandler"
-				>
-					<slot name="custom-action-icon">
-						<svg-icon name="deleted" />
-					</slot>
-				</div>
-
 				<div class="vac-svg-button" @click="startVideoCall">
 					<slot name="video-call-icon">
 						<svg-icon name="video-camera" />
@@ -240,7 +230,6 @@ export default {
 		acceptedFiles: { type: String, required: true },
 		multipleFiles: { type: Boolean, default: true },
 		captureFiles: { type: String, required: true },
-		textareaActionEnabled: { type: Boolean, required: true },
 		textareaAutoFocus: { type: Boolean, required: true },
 		userTagsEnabled: { type: Boolean, required: true },
 		emojisSuggestionEnabled: { type: Boolean, required: true },

@@ -143,7 +143,6 @@
 			:accepted-files="acceptedFiles"
 			:capture-files="captureFiles"
 			:multiple-files="multipleFiles"
-			:textarea-action-enabled="textareaActionEnabled"
 			:textarea-auto-focus="textareaAutoFocus"
 			:user-tags-enabled="userTagsEnabled"
 			:emojis-suggestion-enabled="emojisSuggestionEnabled"
@@ -221,7 +220,6 @@ export default {
 		linkOptions: { type: Object, required: true },
 		loadingRooms: { type: Boolean, required: true },
 		roomInfoEnabled: { type: Boolean, required: true },
-		textareaActionEnabled: { type: Boolean, required: true },
 		textareaAutoFocus: { type: Boolean, required: true },
 		userTagsEnabled: { type: Boolean, required: true },
 		emojisSuggestionEnabled: { type: Boolean, required: true },

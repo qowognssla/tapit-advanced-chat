@@ -60,7 +60,6 @@
 				:is-mobile="isMobile"
 				:loading-rooms="loadingRoomsCasted"
 				:room-info-enabled="roomInfoEnabledCasted"
-				:textarea-action-enabled="textareaActionEnabledCasted"
 				:textarea-auto-focus="textareaAutoFocusCasted"
 				:user-tags-enabled="userTagsEnabledCasted"
 				:emojis-suggestion-enabled="emojisSuggestionEnabledCasted"
@@ -207,7 +206,6 @@ export default {
 			default: () => ({ disabled: false, target: '_blank', rel: null })
 		},
 		roomInfoEnabled: { type: [Boolean, String], default: false },
-		textareaActionEnabled: { type: [Boolean, String], default: false },
 		textareaAutoFocus: { type: [Boolean, String], default: true },
 		userTagsEnabled: { type: [Boolean, String], default: true },
 		emojisSuggestionEnabled: { type: [Boolean, String], default: true },
@@ -349,9 +347,6 @@ export default {
 		},
 		roomInfoEnabledCasted() {
 			return this.castBoolean(this.roomInfoEnabled)
-		},
-		textareaActionEnabledCasted() {
-			return this.castBoolean(this.textareaActionEnabled)
 		},
 		textareaAutoFocusCasted() {
 			return this.castBoolean(this.textareaAutoFocus)
