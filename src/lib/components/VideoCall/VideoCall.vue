@@ -70,19 +70,45 @@ export default {
 	name: 'VideoCall',
 
 	props: {
-		visible: { type: Boolean, default: false }
+		visible: { type: Boolean, default: false },
+		roomId: { type: [String, Number], default: null },
+		currentUserId: { type: [String, Number], default: null },
+		initiatorId: { type: [String, Number], default: null },
+		callId: { type: String, default: null },
+		iceServers: {
+			type: Array,
+			default: () => [
+				{ urls: 'stun:stun.l.google.com:19302' },
+				{ urls: 'stun:stun1.l.google.com:19302' }
+			]
+		}
 	},
 
 	emits: ['close', 'webrtc-offer', 'webrtc-answer', 'webrtc-candidate'],
+
+	expose: [
+		'startCall',
+		'handleRemoteOffer',
+		'handleRemoteAnswer',
+		'handleRemoteCandidate',
+		'stopCall',
+		'cleanup'
+	],
 
 	data() {
 		return {
 			peerConnection: null,
 			localStream: null,
+			remoteStream: null,
 			isMuted: false,
-			isVideoEnabled: true
-			// onDisconnect: null,
-			// signalCallback: null
+			isVideoEnabled: true,
+			callContext: {
+				callId: null,
+				roomId: null,
+				initiatorId: null
+			},
+			connectionState: 'idle',
+			setupInProgress: false
 		}
 	},
 
@@ -90,6 +116,9 @@ export default {
 		visible(val) {
 			if (!val) {
 				this.cleanup()
+			} else {
+				if (this.localStream) this.setVideoStream('localVideo', this.localStream)
+				if (this.remoteStream) this.setVideoStream('remoteVideo', this.remoteStream)
 			}
 		}
 	},
@@ -99,165 +128,199 @@ export default {
 	},
 
 	methods: {
-		// async initPeerConnection(config, signalCallback, onDisconnect) {
-		// 	this.signalCallback = signalCallback
-		// 	this.onDisconnect = onDisconnect
+		setVideoStream(refName, stream) {
+			const element = this.$refs[refName]
+			if (!element) return
 
-		// 	try {
-		// 		// Get user media
-		// 		this.localStream = await navigator.mediaDevices.getUserMedia({
-		// 			video: true,
-		// 			audio: true
-		// 		})
+			if (element.srcObject !== stream) {
+				element.srcObject = stream
+			}
 
-		// 		if (this.$refs.localVideo) {
-		// 			this.$refs.localVideo.srcObject = this.localStream
-		// 		}
+			if (typeof element.play === 'function') {
+				const playPromise = element.play()
+				if (playPromise && typeof playPromise.catch === 'function') {
+					playPromise.catch(() => {
+						// Autoplay might be blocked until user interaction.
+					})
+				}
+			}
+		},
+		async ensureLocalStream() {
+			if (this.localStream) return this.localStream
 
-		// 		// Create peer connection
-		// 		this.peerConnection = new RTCPeerConnection(config)
+			if (typeof window === 'undefined' || !window.navigator || !window.navigator.mediaDevices) {
+				throw new Error('Media devices API is not available in the current environment.')
+			}
 
-		// 		// Add local stream tracks
-		// 		this.localStream.getTracks().forEach(track => {
-		// 			this.peerConnection.addTrack(track, this.localStream)
-		// 		})
+			this.setupInProgress = true
+			try {
+				this.localStream = await window.navigator.mediaDevices.getUserMedia({
+					video: true,
+					audio: true
+				})
 
-		// 		// Handle remote stream
-		// 		this.peerConnection.ontrack = (event) => {
-		// 			if (this.$refs.remoteVideo && event.streams[0]) {
-		// 				this.$refs.remoteVideo.srcObject = event.streams[0]
-		// 			}
-		// 		}
+				this.setVideoStream('localVideo', this.localStream)
 
-		// 		// Handle ICE candidates
-		// 		this.peerConnection.onicecandidate = (event) => {
-		// 			if (event.candidate && this.signalCallback) {
-		// 				this.signalCallback({
-		// 					type: 'candidate',
-		// 					candidate: event.candidate
-		// 				})
-		// 			}
-		// 		}
+				return this.localStream
+			} catch (error) {
+				console.error('Failed to access media devices:', error)
+				throw error
+			} finally {
+				this.setupInProgress = false
+			}
+		},
+		createPeerConnection() {
+			if (this.peerConnection) return this.peerConnection
 
-		// 		// Handle connection state changes
-		// 		this.peerConnection.onconnectionstatechange = () => {
-		// 			if (this.peerConnection.connectionState === 'disconnected' ||
-		// 				this.peerConnection.connectionState === 'failed' ||
-		// 				this.peerConnection.connectionState === 'closed') {
-		// 				this.handleDisconnect()
-		// 			}
-		// 		}
-		// 	} catch (error) {
-		// 		console.error('Error initializing peer connection:', error)
-		// 		this.closeVideoCall()
-		// 	}
-		// },
+			if (typeof RTCPeerConnection === 'undefined') {
+				throw new Error('WebRTC is not supported in this environment.')
+			}
 
-		// async createOffer() {
-		// 	if (!this.peerConnection) return null
+			const pc = new RTCPeerConnection({ iceServers: this.iceServers })
 
-		// 	try {
-		// 		const offer = await this.peerConnection.createOffer()
-		// 		await this.peerConnection.setLocalDescription(offer)
-		// 		return offer
-		// 	} catch (error) {
-		// 		console.error('Error creating offer:', error)
-		// 		return null
-		// 	}
-		// },
+			pc.ontrack = event => {
+				if (event.streams && event.streams[0]) {
+					this.remoteStream = event.streams[0]
+					this.setVideoStream('remoteVideo', this.remoteStream)
+				}
+			}
 
-		// async createAnswer(offerSdp) {
-		// 	if (!this.peerConnection) return null
+			pc.onicecandidate = event => {
+				if (!event.candidate) return
+				this.$emit('webrtc-candidate', {
+					roomId: this.callContext.roomId || this.roomId,
+					callId: this.callContext.callId || this.callId,
+					candidate: event.candidate,
+					fromUserId: this.currentUserId || null
+				})
+			}
 
-		// 	try {
-		// 		await this.peerConnection.setRemoteDescription({
-		// 			type: 'offer',
-		// 			sdp: offerSdp
-		// 		})
+			pc.onconnectionstatechange = () => {
+				this.connectionState = pc.connectionState
+				if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+					this.closeVideoCall()
+				}
+			}
 
-		// 		const answer = await this.peerConnection.createAnswer()
-		// 		await this.peerConnection.setLocalDescription(answer)
-		// 		return answer
-		// 	} catch (error) {
-		// 		console.error('Error creating answer:', error)
-		// 		return null
-		// 	}
-		// },
+			this.peerConnection = pc
 
-		// async setRemoteAnswer(answerSdp) {
-		// 	if (!this.peerConnection) return
+			if (this.localStream) {
+				this.localStream.getTracks().forEach(track => pc.addTrack(track, this.localStream))
+			}
 
-		// 	try {
-		// 		await this.peerConnection.setRemoteDescription({
-		// 			type: 'answer',
-		// 			sdp: answerSdp
-		// 		})
-		// 	} catch (error) {
-		// 		console.error('Error setting remote answer:', error)
-		// 	}
-		// },
+			return pc
+		},
+		async startCall(context = {}) {
+			const callId = context.callId || this.callId
+			const roomId = context.roomId || this.roomId
+			const initiatorId = context.initiatorId ?? this.initiatorId ?? this.currentUserId
 
-		// async addIceCandidate(candidate) {
-		// 	if (!this.peerConnection) return
+			this.callContext = { callId, roomId, initiatorId }
 
-		// 	try {
-		// 		await this.peerConnection.addIceCandidate(candidate)
-		// 	} catch (error) {
-		// 		console.error('Error adding ICE candidate:', error)
-		// 	}
-		// },
+			await this.ensureLocalStream()
+			this.setVideoStream('localVideo', this.localStream)
+			const pc = this.createPeerConnection()
 
+			if (this.localStream && !pc.getSenders().length) {
+				this.localStream.getTracks().forEach(track => pc.addTrack(track, this.localStream))
+			}
+
+			const isInitiator = initiatorId == null || initiatorId === this.currentUserId
+
+			if (isInitiator) {
+				try {
+					const offer = await pc.createOffer()
+					await pc.setLocalDescription(offer)
+					this.$emit('webrtc-offer', {
+						roomId,
+						callId,
+						sdp: offer.sdp,
+						fromUserId: this.currentUserId || null
+					})
+				} catch (error) {
+					console.error('Error creating offer:', error)
+				}
+			}
+		},
+		async handleRemoteOffer({ sdp, roomId, callId }) {
+			await this.ensureLocalStream()
+			const pc = this.createPeerConnection()
+			try {
+				await pc.setRemoteDescription({ type: 'offer', sdp })
+				const answer = await pc.createAnswer()
+				await pc.setLocalDescription(answer)
+				this.$emit('webrtc-answer', {
+					roomId: roomId || this.callContext.roomId,
+					callId: callId || this.callContext.callId,
+					sdp: answer.sdp,
+					fromUserId: this.currentUserId || null
+				})
+			} catch (error) {
+				console.error('Failed to handle remote offer:', error)
+			}
+		},
+		async handleRemoteAnswer({ sdp }) {
+			if (!this.peerConnection) return
+			try {
+				await this.peerConnection.setRemoteDescription({ type: 'answer', sdp })
+			} catch (error) {
+				console.error('Failed to handle remote answer:', error)
+			}
+		},
+		async handleRemoteCandidate({ candidate }) {
+			if (!candidate) return
+			if (!this.peerConnection) {
+				this.createPeerConnection()
+			}
+			try {
+				await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+			} catch (error) {
+				console.warn('Failed to add ICE candidate:', error)
+			}
+		},
+		stopCall() {
+			this.closeVideoCall()
+		},
 		toggleMute() {
 			if (!this.localStream) return
-
 			const audioTrack = this.localStream.getAudioTracks()[0]
 			if (audioTrack) {
 				audioTrack.enabled = !audioTrack.enabled
 				this.isMuted = !audioTrack.enabled
 			}
 		},
-
 		toggleVideo() {
 			if (!this.localStream) return
-
 			const videoTrack = this.localStream.getVideoTracks()[0]
 			if (videoTrack) {
 				videoTrack.enabled = !videoTrack.enabled
 				this.isVideoEnabled = videoTrack.enabled
 			}
 		},
-
 		endCall() {
 			this.closeVideoCall()
 		},
-
 		closeVideoCall() {
 			this.cleanup()
 			this.$emit('close')
 		},
-
-		// handleDisconnect() {
-		// 	if (this.onDisconnect) {
-		// 		this.onDisconnect()
-		// 	}
-		// 	this.cleanup()
-		// },
-
 		cleanup() {
 			try {
-				// Stop local stream
 				if (this.localStream) {
 					this.localStream.getTracks().forEach(track => track.stop())
 					this.localStream = null
 				}
 
-				// Close peer connection
+				if (this.remoteStream) {
+					this.remoteStream.getTracks().forEach(track => track.stop())
+					this.remoteStream = null
+				}
+
 				if (this.peerConnection) {
 					this.peerConnection.close()
 					this.peerConnection = null
 				}
 
-				// Clear video elements
 				if (this.$refs.localVideo) {
 					this.$refs.localVideo.srcObject = null
 				}
@@ -268,9 +331,10 @@ export default {
 				console.warn('Error during VideoCall cleanup:', error)
 			}
 
-			// Reset state
 			this.isMuted = false
 			this.isVideoEnabled = true
+			this.connectionState = 'idle'
+			this.callContext = { callId: null, roomId: null, initiatorId: null }
 		}
 	}
 }

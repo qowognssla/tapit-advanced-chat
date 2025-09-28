@@ -64,7 +64,7 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
-  
+
   const fileUrl = `/uploads/${req.file.filename}`;
   res.json({ url: fileUrl, filename: req.file.filename });
 });
@@ -72,10 +72,10 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
 // Socket.IO connection handling
 io.on('connection', (socket) => {
   console.log('New client connected:', socket.id);
-  
+
   // Handle socket events
   socketHandlers(io, socket, db);
-  
+
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
   });

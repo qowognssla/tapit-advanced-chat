@@ -30,7 +30,7 @@
 				</template>
 			</rooms-list>
 
-			<room
+				<room
 				:current-user-id="currentUserId"
 				:rooms="roomsCasted"
 				:room-id="room.roomId || ''"
@@ -85,13 +85,19 @@
 				@send-message-reaction="sendMessageReaction"
 				@typing-message="typingMessage"
 				@textarea-action-handler="textareaActionHandler"
-				@start-video-call="$emit('start-video-call', $event)"
+				@start-video-call="handleStartVideoCall"
 			>
 				<template v-for="el in slots" #[el.slot]="data">
 					<slot :name="el.slot" v-bind="data" />
 				</template>
 			</room>
-		</div>
+			</div>
+			<call-prompt
+				v-if="callPrompt && callPrompt.visible"
+				v-bind="callPrompt"
+				@confirm="handleCallPromptConfirm"
+				@cancel="handleCallPromptCancel"
+			/>
 		<transition name="vac-fade-preview" appear>
 			<media-preview
 				v-if="showMediaPreview"
@@ -106,9 +112,13 @@
 
 		<video-call
 			v-if="showVideoCall"
+			ref="videoCall"
 			:visible="showVideoCall"
 			:room-id="room.roomId"
-			@close="showVideoCall = false"
+			:current-user-id="currentUserId"
+			:initiator-id="activeCall.initiatorId"
+			:call-id="activeCall.callId"
+			@close="handleVideoCallClose"
 			@webrtc-offer="handleWebRTCOffer"
 			@webrtc-answer="handleWebRTCAnswer"
 			@webrtc-candidate="handleWebRTCCandidate"
@@ -121,6 +131,7 @@ import RoomsList from './RoomsList/RoomsList'
 import Room from './Room/Room'
 import MediaPreview from './MediaPreview/MediaPreview'
 import VideoCall from './components/VideoCall/VideoCall'
+import CallPrompt from './components/VideoCall/CallPrompt'
 
 import locales from '../locales'
 import { defaultThemeStyles, cssThemeVars } from '../themes'
@@ -135,7 +146,8 @@ export default {
 		RoomsList,
 		Room,
 		MediaPreview,
-		VideoCall
+		VideoCall,
+		CallPrompt
 	},
 
 	props: {
@@ -246,7 +258,18 @@ export default {
 		'search-room',
 		'room-action-handler',
 		'message-selection-action-handler',
-		'start-video-call'
+		'start-video-call',
+		'end-video-call'
+	],
+
+	expose: [
+		'handleStartVideoCall',
+		'handleVideoCallClose',
+		'receiveRemoteOffer',
+		'receiveRemoteAnswer',
+		'receiveRemoteCandidate',
+		'acceptIncomingCall',
+		'declineIncomingCall'
 	],
 
 	data() {
@@ -258,7 +281,15 @@ export default {
 			isMobile: false,
 			showMediaPreview: false,
 			previewFile: {},
-			showVideoCall: false
+			showVideoCall: false,
+			activeCall: {
+				callId: null,
+				initiatorId: null,
+				roomId: null
+			},
+			incomingCall: null,
+			pendingCallRequest: null,
+			callPrompt: null
 		}
 	},
 
@@ -580,10 +611,251 @@ export default {
 			})
 		},
 		textareaActionHandler(message) {
-			this.showVideoCall = true
 			this.$emit('textarea-action-handler', {
 				message,
 				roomId: this.room.roomId
+			})
+		},
+		handleStartVideoCall(payload = {}) {
+			const { suppressEmit = false, confirmed = false, ...rest } = payload
+			const roomId = rest.roomId || this.room.roomId
+			if (!roomId) return
+
+			const action = rest.action || 'request'
+			const initiatorId = rest.initiatorId || this.currentUserId || null
+
+			if (action === 'request' && !confirmed) {
+				this.pendingCallRequest = {
+					roomId,
+					initiatorId,
+					timestamp: rest.timestamp || new Date().toISOString()
+				}
+
+				this.callPrompt = {
+					visible: true,
+					mode: 'outgoing',
+					title: this.t.VIDEO_CALL_TITLE_OUTGOING || 'Start a video call?',
+					message: this.t.VIDEO_CALL_START_CONFIRM || 'Start a video call?',
+					username: this.room?.roomName || '',
+					roomName: this.room?.users?.length > 1 ? (this.room.roomName || '') : '',
+					avatar: this.lookupUserAvatar(initiatorId) || '',
+					confirmText: this.t.VIDEO_CALL_START || 'Start Call',
+					cancelText: this.t.CANCEL_SELECT_MESSAGE || 'Cancel'
+				}
+				return
+			}
+
+			const callId = rest.callId || `call_${Date.now()}_${Math.random()
+				.toString(36)
+				.slice(2, 10)}`
+
+			this.activeCall = {
+				callId,
+				initiatorId,
+				roomId
+			}
+			this.pendingCallRequest = null
+
+			this.showVideoCall = true
+
+			this.$nextTick(() => {
+				if (this.$refs.videoCall && this.$refs.videoCall.startCall) {
+					this.$refs.videoCall.startCall({
+						callId,
+						roomId,
+						initiatorId
+					})
+				}
+			})
+
+			if (!suppressEmit) {
+				const eventPayload = {
+					...rest,
+					callId,
+					initiatorId,
+					roomId,
+					action
+				}
+
+				if (!eventPayload.notification) {
+					eventPayload.notification = {
+						type: action === 'accept' ? 'video-call-accept' : 'video-call-request',
+						callId,
+						message:
+							action === 'accept'
+								? this.t.VIDEO_CALL_ACCEPTED || '비디오 통화를 수락했습니다.'
+								: this.t.VIDEO_CALL_REQUEST || 'Video call request'
+					}
+				}
+
+				this.$emit('start-video-call', eventPayload)
+			}
+		},
+		lookupUserName(userId) {
+			if (!userId || !this.room?.users) return ''
+			const user = this.room.users.find(u => String(u._id) === String(userId))
+			return user?.username || ''
+		},
+		lookupUserAvatar(userId) {
+			if (!userId || !this.room?.users) return ''
+			const user = this.room.users.find(u => String(u._id) === String(userId))
+			return user?.avatar || ''
+		},
+		confirmOutgoingCall() {
+			if (!this.pendingCallRequest) return
+
+			const payload = {
+				...this.pendingCallRequest,
+				action: 'request',
+				confirmed: true
+			}
+
+			this.pendingCallRequest = null
+			this.handleStartVideoCall(payload)
+		},
+		handleCallPromptConfirm() {
+			if (!this.callPrompt) return
+			const mode = this.callPrompt.mode
+			this.callPrompt = null
+
+			if (mode === 'outgoing') {
+				this.confirmOutgoingCall()
+			} else if (mode === 'incoming') {
+				this.acceptIncomingCall()
+			}
+		},
+		handleCallPromptCancel() {
+			if (!this.callPrompt) return
+			const mode = this.callPrompt.mode
+			this.callPrompt = null
+
+			if (mode === 'outgoing') {
+				this.pendingCallRequest = null
+			} else if (mode === 'incoming') {
+				this.declineIncomingCall()
+			}
+		},
+		handleVideoCallClose(reason = 'ended') {
+			const payload = {
+				roomId: this.activeCall.roomId || this.room.roomId,
+				callId: this.activeCall.callId,
+				initiatorId: this.activeCall.initiatorId,
+				reason
+			}
+
+			if (this.$refs.videoCall && this.$refs.videoCall.cleanup) {
+				this.$refs.videoCall.cleanup()
+			}
+
+			this.showVideoCall = false
+			this.activeCall = { callId: null, initiatorId: null, roomId: null }
+			this.incomingCall = null
+			this.pendingCallRequest = null
+			this.callPrompt = null
+
+			this.$emit('end-video-call', payload)
+		},
+		receiveRemoteOffer(data = {}) {
+			if (!data) return
+
+			this.incomingCall = {
+				...data,
+				receivedAt: Date.now(),
+				queuedCandidates: []
+			}
+
+			if (data.autoAccept) {
+				this.acceptIncomingCall()
+				return
+			}
+
+			const callerName =
+				data.fromUserName ||
+				data.username ||
+				this.lookupUserName(data.fromUserId)
+			const callerAvatar = data.avatar || this.lookupUserAvatar(data.fromUserId)
+
+			this.callPrompt = {
+				visible: true,
+				mode: 'incoming',
+				title: this.t.VIDEO_CALL_TITLE_INCOMING || 'Incoming video call',
+				message: this.t.VIDEO_CALL_REQUEST || 'Incoming video call',
+				username: callerName || '',
+				roomName: this.room?.roomName || '',
+				avatar: callerAvatar || '',
+				confirmText: this.t.VIDEO_CALL_ACCEPT || 'Accept',
+				cancelText: this.t.VIDEO_CALL_DECLINE || 'Decline'
+			}
+		},
+		receiveRemoteAnswer(data = {}) {
+			if (this.$refs.videoCall && this.$refs.videoCall.handleRemoteAnswer) {
+				this.$refs.videoCall.handleRemoteAnswer(data)
+			}
+		},
+		receiveRemoteCandidate(data = {}) {
+			if (this.showVideoCall && this.$refs.videoCall && this.$refs.videoCall.handleRemoteCandidate) {
+				this.$refs.videoCall.handleRemoteCandidate(data)
+				return
+			}
+
+			if (
+				this.incomingCall &&
+				this.incomingCall.callId &&
+				data.callId === this.incomingCall.callId
+			) {
+				this.incomingCall.queuedCandidates = this.incomingCall.queuedCandidates || []
+				this.incomingCall.queuedCandidates.push(data)
+			}
+		},
+		acceptIncomingCall() {
+			if (!this.incomingCall) return
+
+			const offerData = { ...this.incomingCall }
+			this.incomingCall = null
+			this.callPrompt = null
+
+			const notification = {
+				type: 'video-call-accept',
+				callId: offerData.callId,
+				message: this.t.VIDEO_CALL_ACCEPTED || '비디오 통화를 수락했습니다.'
+			}
+
+			this.handleStartVideoCall({
+				roomId: offerData.roomId,
+				callId: offerData.callId,
+				initiatorId: offerData.fromUserId,
+				action: 'accept',
+				notification
+			})
+
+			this.$nextTick(() => {
+				if (this.$refs.videoCall && this.$refs.videoCall.handleRemoteOffer) {
+					this.$refs.videoCall.handleRemoteOffer(offerData)
+					if (offerData.queuedCandidates && offerData.queuedCandidates.length) {
+						offerData.queuedCandidates.forEach(candidate => {
+							this.$refs.videoCall.handleRemoteCandidate(candidate)
+						})
+					}
+				}
+			})
+		},
+		declineIncomingCall() {
+			if (!this.incomingCall) return
+
+			const declineData = { ...this.incomingCall }
+			this.incomingCall = null
+			this.callPrompt = null
+
+			this.$emit('end-video-call', {
+				roomId: declineData.roomId,
+				callId: declineData.callId,
+				initiatorId: declineData.fromUserId,
+				reason: 'declined',
+				notification: {
+					type: 'video-call-decline',
+					callId: declineData.callId,
+					message: this.t.VIDEO_CALL_DECLINED || '비디오 통화를 거절했습니다.'
+				}
 			})
 		},
 		handleWebRTCOffer(data) {

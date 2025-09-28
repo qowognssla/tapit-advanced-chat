@@ -20,6 +20,8 @@ class SocketService {
     }
 
     this.connectionPromise = new Promise((resolve, reject) => {
+      console.log('[SocketService] Attempting connection to', SOCKET_URL);
+
       this.socket = io(SOCKET_URL, {
         transports: ['websocket'],
         autoConnect: true,
@@ -28,35 +30,72 @@ class SocketService {
         reconnectionDelay: 1000,
       });
 
-      this.socket.on('connect', () => {
-        console.log('Socket connected:', this.socket.id);
+      const clearPromiseState = () => {
+        this.connectionPromise = null;
+      };
+
+      const handleConnect = () => {
+        console.log('[SocketService] Connected:', this.socket.id);
         this.connected = true;
-        
-        // Process pending emits
+
         this.pendingEmits.forEach(({ event, data }) => {
           this.socket.emit(event, data);
         });
         this.pendingEmits = [];
-        
+
+        this.socket.off('connect_error', handleConnectError);
+        this.socket.off('connect_timeout', handleConnectTimeout);
         resolve(this.socket);
-      });
+      };
 
-      this.socket.on('disconnect', () => {
-        console.log('Socket disconnected');
+      const handleDisconnect = () => {
+        console.log('[SocketService] Disconnected');
         this.connected = false;
-        this.connectionPromise = null;
-      });
+        clearPromiseState();
+      };
 
-      this.socket.on('error', (error) => {
-        console.error('Socket error:', error);
-        this.connectionPromise = null;
+      const handleError = (error) => {
+        console.error('[SocketService] Error event:', error);
+        clearPromiseState();
         reject(error);
-      });
+      };
 
-      // Timeout after 10 seconds
+      const handleConnectError = (error) => {
+        console.error('[SocketService] connect_error:', error?.message || error);
+        this.socket.off('connect', handleConnect);
+        this.socket.off('error', handleError);
+        this.socket.off('connect_timeout', handleConnectTimeout);
+        this.socket.off('disconnect', handleDisconnect);
+        clearPromiseState();
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+
+      const handleConnectTimeout = (timeout) => {
+        console.error('[SocketService] connect_timeout:', timeout);
+        this.socket.off('connect', handleConnect);
+        this.socket.off('error', handleError);
+        this.socket.off('connect_error', handleConnectError);
+        this.socket.off('disconnect', handleDisconnect);
+        clearPromiseState();
+        reject(new Error('Socket connection timeout'));
+      };
+
+      this.socket.on('connect', handleConnect);
+      this.socket.on('disconnect', handleDisconnect);
+      this.socket.on('error', handleError);
+      this.socket.on('connect_error', handleConnectError);
+      this.socket.on('connect_timeout', handleConnectTimeout);
+
+      // Fallback timeout (10s) in case events never fire
       setTimeout(() => {
         if (!this.connected) {
-          this.connectionPromise = null;
+          console.error('[SocketService] Manual connection timeout hit');
+          this.socket.off('connect', handleConnect);
+          this.socket.off('disconnect', handleDisconnect);
+          this.socket.off('error', handleError);
+          this.socket.off('connect_error', handleConnectError);
+          this.socket.off('connect_timeout', handleConnectTimeout);
+          clearPromiseState();
           reject(new Error('Socket connection timeout'));
         }
       }, 10000);
@@ -184,7 +223,6 @@ class SocketService {
 }
 
 export default new SocketService();
-
 
 
 

@@ -188,21 +188,21 @@ export default {
 		loadedRooms() {
 			const loadedRaw = this.rooms.slice(0, this.roomsLoadedCount)
 			console.log('🔍 Raw rooms before mapping:', loadedRaw)
-			
+
 			// Map server rooms (using _id/id) to component rooms (using roomId)
 			const mapped = loadedRaw.map(r => {
 				console.log('🔍 Mapping room:', r)
-				
+
 				// Ensure room has valid structure
 				if (!r._id && !r.id) {
 					console.error('❌ Room missing ID:', r)
 					return null
 				}
-				
+
 				const roomId = r._id || r.id
 				const roomName = r.roomName || 'Unnamed Room'
 				const users = Array.isArray(r.users) ? r.users : []
-				
+
 				const mappedRoom = {
 					roomId: roomId,
 					roomName: roomName,
@@ -221,7 +221,7 @@ export default {
 				console.log('🔍 Mapped room:', mappedRoom)
 				return mappedRoom
 			}).filter(r => r !== null) // Remove any invalid rooms
-			
+
 			console.log('Loaded rooms for vue-advanced-chat (mapped):', mapped)
 			return mapped
 		},
@@ -237,7 +237,7 @@ export default {
 
 	async mounted() {
 		console.log('🚀 ChatContainer mounted')
-		
+
 		try {
 			await this.initializeChat()
 		} catch (e) {
@@ -246,13 +246,13 @@ export default {
 		this.setupSocketListeners()
 		// fetchRooms is now called in initializeChat, so remove duplicate call
 		this.fetchAllUsers()
-		
+
 		// Don't set chatReady here - wait for rooms to be loaded
-		
+
 		// Wait for next tick to ensure DOM is updated
 		await this.$nextTick()
 		console.log('🔍 ChatWindow ref after ready:', this.$refs.chatWindow)
-		
+
 		// Add styles to the component
 		this.$nextTick(async () => {
 			if (this.$refs.chatWindow && this.$refs.chatWindow.shadowRoot) {
@@ -297,24 +297,24 @@ export default {
 			try {
 				console.log('🚀 Starting chat initialization...')
 				console.log('👤 Current user ID:', this.currentUserId)
-				
+
 				const user = await chatService.initialize(this.currentUserId)
 				console.log('✅ Chat initialized with user:', user)
-				
+
 				this.loggedInUserId = user?._id || user?.id || ''
 				console.log('🆔 Logged in user ID set to:', this.loggedInUserId)
-				
+
 				// Fetch rooms after initialization
 				console.log('📥 Fetching rooms after initialization...')
 				await this.fetchRooms()
-				
+
 				// Load messages for the first room if available
 				if (this.rooms && this.rooms.length > 0) {
 					console.log('📨 Loading messages for first room...')
 					this.roomId = this.rooms[0]._id || this.rooms[0].id
 					await this.fetchMessages({ room: this.rooms[0], options: {} })
 				}
-				
+
 				// Set chatReady after rooms and messages are loaded
 				// But only if we have valid rooms
 				if (this.rooms && this.rooms.length > 0 && this.loadedRooms.length > 0) {
@@ -325,7 +325,7 @@ export default {
 					// Set chatReady anyway to show empty state
 					this.chatReady = true
 				}
-				
+
 			} catch (error) {
 				console.error('❌ Failed to initialize chat:', error)
 			}
@@ -363,7 +363,7 @@ export default {
 				date: message.date,
 				date_type: typeof message.date
 			})
-			
+
 			if (roomId === this.roomId) {
 				const formattedMessage = this.formatMessage(this.selectedRoom, message)
 				this.messages.push(formattedMessage)
@@ -526,27 +526,27 @@ export default {
 		async fetchRooms() {
 			console.log('🔍 Starting to fetch rooms...')
 			this.resetRooms()
-			
+
 			try {
 				const rooms = await chatService.getRooms(this.roomsPerPage)
 				console.log('✅ Fetched rooms successfully:', rooms)
 				console.log('📊 Rooms count:', rooms.length)
-				
+
 				// Store rooms as-is, loadedRooms computed property will handle mapping
 				this.rooms = rooms
 				this.roomsLoadedCount = rooms.length
 				this.loadingRooms = false
-				
+
 				// Force roomsLoaded to true even if no rooms
 				this.roomsLoaded = true
-				
+
 				console.log('🎯 Rooms state updated:', {
 					rooms: this.rooms,
 					roomsLoaded: this.roomsLoaded,
 					loadingRooms: this.loadingRooms,
 					roomsLoadedCount: this.roomsLoadedCount
 				})
-				
+
 				if (this.rooms.length > 0) {
 					this.roomId = this.rooms[0]._id || this.rooms[0].id
 					console.log('🏠 First room selected:', this.roomId)
@@ -569,7 +569,7 @@ export default {
 					this.roomsPerPage,
 					this.roomsLoadedCount
 				)
-				
+
 				if (!rooms.length) {
 					this.endRooms = true
 					return
@@ -577,7 +577,7 @@ export default {
 
 				this.rooms.push(...rooms)
 				this.roomsLoadedCount += rooms.length
-				
+
 				if (rooms.length < this.roomsPerPage) {
 					this.endRooms = true
 				}
@@ -630,7 +630,7 @@ export default {
 		formatMessage(room, message) {
 			// Convert timestamp to Date object for parsing
 			const messageDate = new Date(message.timestamp)
-			
+
 			// Debug logging
 			console.log('📝 Formatting message:', {
 				original_timestamp: message.timestamp,
@@ -639,7 +639,7 @@ export default {
 				formatted_date: parseTimestamp(messageDate, 'DD MMMM YYYY'),
 				formatted_timestamp: parseTimestamp(messageDate, 'HH:mm')
 			})
-			
+
 			const formattedMessage = {
 				...message,
 				date: parseTimestamp(messageDate, 'DD MMMM YYYY'),
@@ -662,13 +662,13 @@ export default {
 			if (!formattedMessage.senderId && message.sender_id) {
 				formattedMessage.senderId = message.sender_id
 			}
-			
+
 			return formattedMessage
 		},
 
 		formatMessageFiles(files) {
 			if (!files) return []
-			
+
 			const toArray = Array.isArray(files) ? files : [{ url: files }]
 			return toArray.map(file => {
 				const rawUrl = file.url || file.preview || ''
@@ -689,20 +689,20 @@ export default {
 		async sendMessage({ content, roomId, files, replyMessage }) {
 			try {
 				console.log('📤 Sending message:', { content, roomId, files: files?.length, replyMessage })
-				
+
 				// Upload files first if any
 				let uploadedFiles = []
 				if (files && files.length) {
 					console.log('📁 Uploading files before sending message:', files.length)
-					
+
 					for (let index = 0; index < files.length; index++) {
 						const file = files[index]
 						console.log(`📎 Uploading file ${index + 1}/${files.length}:`, file.name)
-						
+
 						try {
 							const uploadedFile = await chatService.uploadFile(file)
 							console.log('✅ File uploaded successfully:', uploadedFile)
-							
+
 							uploadedFiles.push({
 								name: file.name,
 								size: file.size,
@@ -718,7 +718,7 @@ export default {
 						}
 					}
 				}
-				
+
 				// Now send message with uploaded files
 				const message = await chatService.sendMessage(roomId, {
 					content,
@@ -726,7 +726,7 @@ export default {
 					replyMessage
 				})
 				console.log('✅ Message sent with files:', message)
-				
+
 			} catch (error) {
 				console.error('❌ Error sending message:', error)
 			}
@@ -789,7 +789,7 @@ export default {
 				const user = await chatService.getUserByUsername(this.addRoomUsername)
 				// Don't pass username as room name - let server generate it from participants
 				const room = await chatService.createRoom([user._id])
-				
+
 				this.addNewRoom = false
 				this.addRoomUsername = ''
 				this.disableForm = false
@@ -904,9 +904,9 @@ export default {
 		startVideoCall(event) {
 			console.log('Starting video call for room:', event.roomId)
 			this.showVideoCall = true
-			
+
 			// Notify other participants in the room
-			chatService.emit('start-video-call', { 
+			chatService.emit('start-video-call', {
 				roomId: event.roomId,
 				userId: this.internalCurrentUserId
 			})
@@ -915,7 +915,7 @@ export default {
 		endVideoCall() {
 			console.log('Ending video call')
 			this.showVideoCall = false
-			
+
 			// Notify other participants
 			if (this.roomId) {
 				chatService.emit('end-video-call', {

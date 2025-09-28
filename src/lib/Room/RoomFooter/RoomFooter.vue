@@ -217,6 +217,7 @@ export default {
 	props: {
 		room: { type: Object, required: true },
 		roomId: { type: [String, Number], required: true },
+		currentUserId: { type: [String, Number], default: '' },
 		roomMessage: { type: String, default: null },
 		textFormatting: { type: Object, required: true },
 		linkOptions: { type: Object, required: true },
@@ -852,7 +853,14 @@ export default {
 			alert('Microphone access failed. Please check your browser permissions and ensure you are using HTTPS or localhost.')
 		},
 		startVideoCall() {
-			this.$emit('start-video-call', { roomId: this.roomId })
+			if (!this.roomId) return
+
+			this.$emit('start-video-call', {
+				roomId: this.roomId,
+				initiatorId: this.currentUserId || null,
+				timestamp: new Date().toISOString(),
+				action: 'request'
+			})
 		}
 	}
 }

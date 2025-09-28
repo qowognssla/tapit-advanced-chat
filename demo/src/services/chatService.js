@@ -17,8 +17,12 @@ class ChatService {
       this.currentUser = loginResponse.user;
 
       // Connect to socket and wait for connection
-      await socketService.connect();
-      socketService.onUserConnect(this.currentUser._id);
+      try {
+        await socketService.connect();
+        socketService.onUserConnect(this.currentUser._id);
+      } catch (error) {
+        console.error('ChatService: socket connection failed, continuing without realtime features:', error);
+      }
 
       return this.currentUser;
     } catch (error) {
@@ -302,7 +306,6 @@ class ChatService {
 }
 
 export default new ChatService();
-
 
 
 

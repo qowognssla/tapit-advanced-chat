@@ -37,7 +37,7 @@
 	"unpkg": "./dist/vue-advanced-chat.umd.js",
 	"jsdelivr": "./dist/vue-advanced-chat.umd.js",
 	"scripts": {
-		"dev": "vite",
+		"dev": "vite --host",
 		"build": "vite build",
 		"serve": "vite preview",
 		"clean:lib": "rm -rf dist/*.js && rm -rf dist/*.map && rm -rf dist/*.css && rm -rf dist/*.html",

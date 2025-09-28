@@ -10,5 +10,15 @@ export default {
 	IS_ONLINE: 'is online',
 	LAST_SEEN: 'last seen ',
 	IS_TYPING: 'is writing...',
-	CANCEL_SELECT_MESSAGE: 'Cancel'
+	CANCEL_SELECT_MESSAGE: 'Cancel',
+	VIDEO_CALL_REQUEST: 'Incoming video call',
+	VIDEO_CALL_FROM: 'Video call from',
+	VIDEO_CALL_TITLE_INCOMING: 'Incoming video call',
+	VIDEO_CALL_TITLE_OUTGOING: 'Start a video call?',
+	VIDEO_CALL_START: 'Start Call',
+	VIDEO_CALL_ACCEPT: 'Accept',
+	VIDEO_CALL_DECLINE: 'Decline',
+	VIDEO_CALL_START_CONFIRM: 'Start a video call?',
+	VIDEO_CALL_ACCEPTED: 'Video call accepted.',
+	VIDEO_CALL_DECLINED: 'Video call declined.'
 }

@@ -7,8 +7,9 @@ const { generateToken } = require('../middleware/auth');
 // Simple login/register endpoint (for demo purposes)
 router.post('/login', async (req, res) => {
   try {
-    const { username } = req.body;
-    
+    const body = req.body || {};
+    const { username } = body;
+
     if (!username) {
       return res.status(400).json({ error: 'Username is required' });
     }
@@ -66,7 +67,6 @@ router.post('/login', async (req, res) => {
 });
 
 module.exports = router;
-
 
 
 

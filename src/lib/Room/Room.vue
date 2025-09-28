@@ -132,6 +132,7 @@
 		<room-footer
 			:room="room"
 			:room-id="roomId"
+			:current-user-id="currentUserId"
 			:room-message="roomMessage"
 			:text-messages="textMessages"
 			:show-send-icon="showSendIcon"
@@ -160,7 +161,7 @@
 			@send-message="$emit('send-message', $event)"
 			@typing-message="$emit('typing-message', $event)"
 			@textarea-action-handler="$emit('textarea-action-handler', $event)"
-			@start-video-call="$emit('start-video-call', $event)"
+			@start-video-call="handleStartVideoCall"
 		>
 			<template v-for="(idx, name) in $slots" #[name]="data">
 				<slot :name="name" v-bind="data" />
@@ -330,6 +331,9 @@ export default {
 	},
 
 	methods: {
+		handleStartVideoCall(payload) {
+			this.$emit('start-video-call', payload)
+		},
 		updateLoadingMessages(val) {
 			this.loadingMessages = val
 
